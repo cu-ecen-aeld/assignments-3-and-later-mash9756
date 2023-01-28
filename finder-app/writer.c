@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
     printf("\r\nWrite String: %s\r\n", write_string);
     
     /* open given file path with read + write capability */
-    file = fopen(write_file, "r+");
+    file = fopen(write_file, "w");
     if(file == NULL)
     {
         printf("\r\nUnable to open file.");

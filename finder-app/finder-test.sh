@@ -49,13 +49,14 @@ then
 	fi
 fi
 
+# natively clean and complile writer.c program
 echo "Removing the old writer utility and compiling as a native application"
 make clean
 make
 
 for i in $( seq 1 $NUMFILES)
 do
-	touch $WRITEDIR/${username}$i.txt
+	# changed from writer.sh to just writer, natively compiled writer.c
 	./writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
 done
 

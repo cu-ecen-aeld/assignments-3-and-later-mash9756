@@ -23,9 +23,9 @@ void usage_info(char *argv[])
 {
     printf("\r\n|-------------------------------USAGE INFO------------------------------|");
     printf("\r\n|Program Name: writer.exe\t\t\t\t\t\t|");
-    printf("\r\n|\tWrites given text string to given file in RELATIVE folder path\t|");
-    printf("\r\n|\tExample: ./writer.exe conf/test.txt test\t\t\t|");
-    printf("\r\n|\t\twrite \"test\" to file test.txt in folder \"conf\"\t\t|\n");
+    printf("\r\n|\tWrites given text string to given file in folder path\t\t|");
+    printf("\r\n|\tExample: ./writer /tmp/test.txt test\t\t\t\t|");
+    printf("\r\n|\t\twrite \"test\" to file test.txt in folder \"tmp\"\t\t|\n");
     printf("|-----------------------------------------------------------------------|\n\n");
 }
 
@@ -36,9 +36,9 @@ int main(int argc, char *argv[])
 
     if(argc < 3)
     {
-        printf("\r\nNo arguements passed.\r\n");
+        printf("\r\nNot enough arguements passed.\r\n");
         usage_info(argv);
-        syslog(LOG_ERR, "No arguements passed.");
+        syslog(LOG_ERR, "Not enough arguements passed.");
         return 1;
     }
     else if(argc >= 4)
@@ -72,8 +72,21 @@ int main(int argc, char *argv[])
         syslog(LOG_DEBUG, "Successfully opened user file.");
     }
     
+    /* long enough for the string plus a null terminator */
+    int wrlen = strlen(write_string) + 1;
+
     syslog(LOG_DEBUG, "Writing %s to %s...", write_file, write_string);
-    fwrite(write_string, strlen(write_string) + 1, 1, file);
+    int res = fwrite(write_string, 1, wrlen, file);
+    
+    /* check for correct write to file */
+    if(res != wrlen)
+    {
+        syslog(LOG_DEBUG, "Write error, # of elements written not the same as requested");
+        printf("\r\nWrite error, # of elements written not the same as requested.");
+        printf("\r\n\t Requested Length: %d, Actual Written Length: %d\n\n", wrlen, res);
+        return 1;
+    }
+    
     syslog(LOG_DEBUG, "Write complete!");
     printf("\r\nWrite Successful!\n\n");
 

@@ -39,6 +39,7 @@ int main(int argc, char *argv[])
         printf("\r\nNot enough arguements passed.\r\n");
         usage_info(argv);
         syslog(LOG_ERR, "Not enough arguements passed.");
+        closelog();
         return 1;
     }
     else if(argc >= 4)
@@ -46,6 +47,7 @@ int main(int argc, char *argv[])
         printf("\r\nToo many arguements passed.\r\n");
         usage_info(argv);
         syslog(LOG_ERR, "Too many arguements passed.");
+        closelog();
         return 1;
     }
 
@@ -64,6 +66,8 @@ int main(int argc, char *argv[])
         printf("\r\nUnable to open file.");
         syslog(LOG_ERR, "Unable to open file.");
         printf("\r\nExiting...\r\n");
+        fclose(file);
+        closelog();
         return 1;
     }
     else
@@ -84,6 +88,8 @@ int main(int argc, char *argv[])
         syslog(LOG_DEBUG, "Write error, # of elements written not the same as requested");
         printf("\r\nWrite error, # of elements written not the same as requested.");
         printf("\r\n\t Requested Length: %d, Actual Written Length: %d\n\n", wrlen, res);
+        fclose(file);
+        closelog();
         return 1;
     }
     

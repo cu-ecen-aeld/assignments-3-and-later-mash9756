@@ -1,4 +1,10 @@
 #include "systemcalls.h"
+/* added for system() */
+#include <stdlib.h>
+/* added for exec, fork, and wait */
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,8 +22,29 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+    /* check for null cmd */
+    if(cmd == NULL)
+    {
+        printf("\r\ncmd arguement invalid.");
+        return false;
+    }
+    
+    /* attempt to create new process with given command */
+    int result = system(cmd);
 
-    return true;
+    /* error handling for system call failures */
+    if(result == -1)
+    {
+        printf("\r\nsystem call returned -1, child process could not be created.");
+        return false;
+    }
+    else if(result == 127)
+    {
+        printf("\r\nsystem call returned 127, child process could not execute shell.");
+        return false;
+    }
+    else
+        return true;
 }
 
 /**
@@ -58,9 +85,43 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    /* var to store process status from wait() */
+    int wait_status = 0;
 
+    /* create new child process */
+    int fres = fork();
+    /* error handling for fork */
+    if(fres == -1)
+    {
+        printf("\r\nfork() failed to create a new process");
+        return false;
+    }
+    else
+        printf("\r\nfork() successfully created pid %d", fres);
+
+    /* change newly created process with given commands */
+    int eres = execv(command[0], command);
+    /* error handling for execv */
+    if(eres == -1)
+    {
+        printf("\r\nexecv() failed to change pid %d", fres);
+        return false;
+    }
+    else
+        printf("\r\nexecv() successfully changed pid %d", fres);
+
+    /* wait for process to complete */
+    pid_t wres = wait(&wait_status);
+    /* error handling for wait */
+    if(wres == -1)
+    {
+        printf("\r\nwait() failed");
+        return false;
+    }
+    else
+        printf("\r\nwait() successfully confirmed process termination");
+        
     va_end(args);
-
     return true;
 }
 

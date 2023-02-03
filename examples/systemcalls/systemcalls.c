@@ -1,10 +1,12 @@
 #include "systemcalls.h"
 /* added for system() */
 #include <stdlib.h>
-/* added for exec, fork, and wait */
+/* added for exec, fork, wait, and open */
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -86,40 +88,51 @@ bool do_exec(int count, ...)
  *
 */
     /* var to store process status from wait() */
-    int wait_status = 0;
+    int wstat = 0;
+    pid_t pid = 0;
+    int eres = 0;
 
     /* create new child process */
-    int fres = fork();
+    printf("\nforking...");
+    pid = fork();
     /* error handling for fork */
-    if(fres == -1)
+    if(pid == -1)
     {
-        printf("\r\nfork() failed to create a new process");
+        printf("\nfork failed to create a new process");
         return false;
     }
-    else
-        printf("\r\nfork() successfully created pid %d", fres);
+    if(pid > 0)
+    {
+        printf("\nIt's me, the dad. My son is %d", pid);
+        pid = wait(&wstat);
+        if(WIFEXITED(wstat) == true)
+        {
+            printf("\nMy son was put down peacefully (exit code %d)\n\n", WEXITSTATUS(wstat));
+        }
+        if(WIFSIGNALED(wstat) == true)
+        {
+            printf("\nMy son was murdered (exit code %d)\n\n", WTERMSIG(wstat));
+        }
+    }
+    if(pid == 0)
+    {
+        printf("\nfork successfully created me, the son!");
+        printf("\nexecv call...");
+        /* change newly created process with given commands */
+        eres = execv(command[0], command);
+        /* error handling for execv */
+        printf("\nexecv done %d", eres);
+        if(eres == -1)
+        {
+            printf("\nexecv failed to change my son\n\n");
+            return false;
+        }
+        else
+        {
+            printf("\nexecv() successfully changed my son\n\n");
+        }
+    }
 
-    /* change newly created process with given commands */
-    int eres = execv(command[0], command);
-    /* error handling for execv */
-    if(eres == -1)
-    {
-        printf("\r\nexecv() failed to change pid %d", fres);
-        return false;
-    }
-    else
-        printf("\r\nexecv() successfully changed pid %d", fres);
-
-    /* wait for process to complete */
-    pid_t wres = wait(&wait_status);
-    /* error handling for wait */
-    if(wres == -1)
-    {
-        printf("\r\nwait() failed");
-        return false;
-    }
-    else
-        printf("\r\nwait() successfully confirmed process termination");
         
     va_end(args);
     return true;
@@ -132,6 +145,9 @@ bool do_exec(int count, ...)
 */
 bool do_exec_redirect(const char *outputfile, int count, ...)
 {
+
+    printf("\nExec Redirected\n");
+
     va_list args;
     va_start(args, count);
     char * command[count+1];
@@ -153,8 +169,6 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
-
     va_end(args);
-
     return true;
 }

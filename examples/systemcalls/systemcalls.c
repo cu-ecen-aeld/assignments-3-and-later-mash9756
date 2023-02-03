@@ -105,6 +105,7 @@ bool do_exec(int count, ...)
     {
         printf("\nIt's me, the dad. My son is %d", pid);
         pid = wait(&wstat);
+        printf("\npid %d ended", pid);
         if(WIFEXITED(wstat) == true)
         {
             printf("\nMy son was put down peacefully (exit code %d)\n\n", WEXITSTATUS(wstat));
@@ -145,8 +146,6 @@ bool do_exec(int count, ...)
 */
 bool do_exec_redirect(const char *outputfile, int count, ...)
 {
-
-    printf("\nExec Redirected\n");
 
     va_list args;
     va_start(args, count);

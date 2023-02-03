@@ -103,21 +103,23 @@ bool do_exec(int count, ...)
     }
     if(pid > 0)
     {
-        printf("\nIt's me, the dad. My son is %d", pid);
+        printf("\nParent process: child is %d", pid);
         pid = wait(&wstat);
-        printf("\npid %d ended", pid);
+        printf("\nChild (pid %d) ended", pid);
         if(WIFEXITED(wstat) == true)
         {
-            printf("\nMy son was put down peacefully (exit code %d)\n\n", WEXITSTATUS(wstat));
+            printf("\nChild exited successfully (exit code %d)\n\n", WEXITSTATUS(wstat));
+            return WEXITSTATUS(wstat);
         }
-        if(WIFSIGNALED(wstat) == true)
+        else
         {
-            printf("\nMy son was murdered (exit code %d)\n\n", WTERMSIG(wstat));
+            printf("\nChild was terminated (exit code %d)\n\n", WEXITSTATUS(wstat));
+            return false;   
         }
     }
     if(pid == 0)
     {
-        printf("\nfork successfully created me, the son!");
+        printf("\nfork successfully created this child.");
         printf("\nexecv call...");
         /* change newly created process with given commands */
         eres = execv(command[0], command);
@@ -125,16 +127,15 @@ bool do_exec(int count, ...)
         printf("\nexecv done %d", eres);
         if(eres == -1)
         {
-            printf("\nexecv failed to change my son\n\n");
+            printf("\nexecv failed to alter the child\n\n");
             return false;
         }
         else
         {
-            printf("\nexecv() successfully changed my son\n\n");
+            printf("\nexecv() successfully altered the child\n\n");
         }
     }
-
-        
+ 
     va_end(args);
     return true;
 }

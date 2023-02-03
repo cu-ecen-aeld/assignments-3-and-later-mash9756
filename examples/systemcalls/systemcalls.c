@@ -8,6 +8,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include <stdio.h>
+#include <unistd.h>
+
 /**
  * @param cmd the command to execute with system()
  * @return true if the command in @param cmd was executed
@@ -128,11 +131,12 @@ bool do_exec(int count, ...)
         if(eres == -1)
         {
             printf("\nexecv failed to alter the child\n\n");
-            return false;
+            exit(0);
         }
         else
         {
             printf("\nexecv() successfully altered the child\n\n");
+            exit(1);
         }
     }
  

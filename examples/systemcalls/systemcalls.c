@@ -97,7 +97,7 @@ bool do_exec(int count, ...)
     //int wstat   = 0;
 
     printf("\r\nCreating child process with fork()...");
-    pid = fork();
+    //pid = fork();
     if(pid == -1)
     {
         printf("\nfork failed to create a new process");
@@ -133,7 +133,7 @@ bool do_exec(int count, ...)
     }
     if(pid == 0)
     {
-        printf("\npid %d, Child", getpid());
+        printf("\npid %d, Child\n\n", getpid());
         //execv("echo", argt);
         //sleep(3);
         //printf("\nexecv returned, an error occured.");

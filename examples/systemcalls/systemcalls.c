@@ -90,6 +90,54 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    pid_t pid   = 0;
+    pid_t wpid  = 0;
+    int wstat   = 0;
+
+    printf("\r\nCreating child process with fork()...");
+    pid = fork();
+    if(pid == -1)
+    {
+        printf("\nfork failed to create a new process");
+        return false;
+    }
+
+    printf("\nfork() completed successfully");
+    
+    if(pid > 0)
+    {
+        printf("\nCurrent Process: Parent");
+        printf("\nChild Process pid: %d", pid);
+        waitpid(pid, &wstat, 0);
+        if(wpid == -1)
+        {
+            printf("\nFailed to terminate child %d", pid);
+            return false;
+        }
+        else
+        {
+            printf("\nChild (pid %d) ended", wpid);
+            if(WIFEXITED(wstat) == true)
+            {
+                printf("\nChild exited successfully (exit code %d)\n\n", WEXITSTATUS(wstat));
+                return WEXITSTATUS(wstat);
+            }
+            else
+            {
+                printf("\nChild did not terminate normally\n\n");
+                return false;   
+            }
+        }
+    }
+    if(pid == 0)
+    {
+        printf("\nCurrent Process: Child");
+        printf("\nChild Process pid: %d", pid);
+        execv(command[0], command);
+
+        printf("\nexecv returned, an error occured.");
+        exit(0);
+    }
 
 // /* var to store process status from wait() */
 //     int wstat   = 0;

@@ -137,7 +137,7 @@ bool do_exec(int count, ...)
         printf("\nfork successfully created this child. %s, %s, %s", command[0], command[1], command[2]);
         printf("\nexecv call...");
         /* change newly created process with given commands */
-        eres = execv(command[0], command);
+        //eres = execv(command[0], command);
         /* error handling for execv */
         printf("\nexecv done %d", eres);
         if(eres == -1)

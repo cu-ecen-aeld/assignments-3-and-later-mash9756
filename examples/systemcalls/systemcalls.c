@@ -145,7 +145,7 @@ bool do_exec(int count, ...)
     {
         printf("\nfork successfully created this child.");
         /* change newly created process with given commands */
-        eres = execv(command[0], &command[0]);
+        eres = execv(command[0], command);
         /* error handling for execv */
         if(eres == -1)
         {
@@ -187,7 +187,7 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *
 */
 
-    int fd = open(outputfile, O_CREAT, 0644);
+    int fd = open(outputfile, O_CREAT, 0777);
     if(fd < 0)
     {
         printf("\nCouldnt create/open %s", outputfile);
@@ -246,11 +246,18 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     }
     if(pid == 0)
     {
+        
         dup2(fd, 1);
-
+        // printf("\nPointing 1 to fd: %d", dupres);
+        // if(dupres < 0)
+        // {
+        //    printf("\ndup2 failed");
+        //    return false;
+        // }
+        close(fd);
         printf("\nfork successfully created this child.");
         /* change newly created process with given commands */
-        eres = execv(command[0], &command[0]);
+        eres = execv(command[0], command);
         /* error handling for execv */
         if(eres == -1)
         {

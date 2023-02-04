@@ -90,6 +90,8 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+
+    char *argt[] = {"testing..."};
     pid_t pid   = 0;
     pid_t wpid  = 0;
     int wstat   = 0;
@@ -133,8 +135,8 @@ bool do_exec(int count, ...)
     {
         printf("\nCurrent Process: Child");
         printf("\nChild Process pid: %d", pid);
-        //execv(command[0], command);
-        sleep(3);
+        execv("echo", argt);
+        //sleep(3);
         //printf("\nexecv returned, an error occured.");
         //exit(0);
     }

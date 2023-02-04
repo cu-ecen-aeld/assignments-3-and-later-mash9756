@@ -133,9 +133,9 @@ bool do_exec(int count, ...)
     {
         printf("\nCurrent Process: Child");
         printf("\nChild Process pid: %d", pid);
-        execv(command[0], command);
-
-        printf("\nexecv returned, an error occured.");
+        //execv(command[0], command);
+        sleep(3);
+        //printf("\nexecv returned, an error occured.");
         exit(0);
     }
 

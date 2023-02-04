@@ -93,53 +93,56 @@ bool do_exec(int count, ...)
 
     //char *argt[] = {"testing..."};
     pid_t pid   = 0;
-    //pid_t wpid  = 0;
-    //int wstat   = 0;
+    pid_t wpid  = 0;
+    int wstat   = 0;
 
     printf("\r\nCreating child process with fork()...");
     pid = fork();
-    if(pid == -1)
+    while(1)
     {
-        printf("\nfork failed to create a new process");
-        return false;
-    }
+        if(pid == -1)
+        {
+            printf("\nfork failed to create a new process");
+            return false;
+        }
 
-    printf("\nfork() completed successfully");
+        printf("\nfork() completed successfully");
+        
+        if(pid > 0)
+        {
+            printf("\nCurrent Process: Parent");
+            printf("\nChild Process pid: %d\n\n", pid);
+            waitpid(pid, &wstat, 0);
+            if(wpid == -1)
+            {
+                printf("\nFailed to terminate child %d", pid);
+                return false;
+            }
+            else
+            {
+                printf("\nChild (pid %d) ended", wpid);
+                if(WIFEXITED(wstat) == true)
+                {
+                    printf("\nChild exited successfully (exit code %d)\n\n", WEXITSTATUS(wstat));
+                    return WEXITSTATUS(wstat);
+                }
+                else
+                {
+                    printf("\nChild did not terminate normally\n\n");
+                    return false;   
+                }
+            }
+        }
+        if(pid == 0)
+        {
+            printf("\nCurrent Process: Child\n\n");
+            //execv("echo", argt);
+            //sleep(3);
+            //printf("\nexecv returned, an error occured.");
+            exit(0);
+        }
+    }
     
-    if(pid > 0)
-    {
-        printf("\nCurrent Process: Parent");
-        printf("\nChild Process pid: %d", pid);
-        // waitpid(pid, &wstat, 0);
-        // if(wpid == -1)
-        // {
-        //     printf("\nFailed to terminate child %d", pid);
-        //     return false;
-        // }
-        // else
-        // {
-        //     printf("\nChild (pid %d) ended", wpid);
-        //     if(WIFEXITED(wstat) == true)
-        //     {
-        //         printf("\nChild exited successfully (exit code %d)\n\n", WEXITSTATUS(wstat));
-        //         return WEXITSTATUS(wstat);
-        //     }
-        //     else
-        //     {
-        //         printf("\nChild did not terminate normally\n\n");
-        //         return false;   
-        //     }
-        // }
-    }
-    if(pid == 0)
-    {
-        printf("\nCurrent Process: Child");
-        printf("\nChild Process pid: %d", pid);
-        //execv("echo", argt);
-        //sleep(3);
-        //printf("\nexecv returned, an error occured.");
-        //exit(0);
-    }
 
 // /* var to store process status from wait() */
 //     int wstat   = 0;

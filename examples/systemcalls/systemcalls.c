@@ -1,15 +1,12 @@
 #include "systemcalls.h"
 /* added for system() */
 #include <stdlib.h>
-/* added for exec, fork, wait, and open */
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 
-#include <stdio.h>
+#include <sys/types.h>
 #include <unistd.h>
+#include <sys/wait.h>
+
+
 
 /**
  * @param cmd the command to execute with system()
@@ -27,6 +24,7 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+
     /* check for null cmd */
     if(cmd == NULL)
     {
@@ -50,6 +48,8 @@ bool do_system(const char *cmd)
     }
     else
         return true;
+
+    return true;
 }
 
 /**
@@ -90,12 +90,15 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
-    /* var to store process status from wait() */
-    int wstat = 0;
-    pid_t pid = 0;
-    int eres = 0;
+
+/* var to store process status from wait() */
+    int wstat   = 0;
+    pid_t pid   = 0;
+    pid_t wpid  = 0;
+    int eres    = 0;
 
     /* create new child process */
+    printf("\nCount = %d\n", count);
     printf("\nforking...");
     pid = fork();
     /* error handling for fork */
@@ -107,22 +110,31 @@ bool do_exec(int count, ...)
     if(pid > 0)
     {
         printf("\nParent process: child is %d", pid);
-        pid = wait(&wstat);
-        printf("\nChild (pid %d) ended", pid);
-        if(WIFEXITED(wstat) == true)
+        printf("\nWaiting for child to change state...");
+        wpid = waitpid(pid, &wstat, 0);
+        if(wpid == -1)
         {
-            printf("\nChild exited successfully (exit code %d)\n\n", WEXITSTATUS(wstat));
-            return WEXITSTATUS(wstat);
+            printf("\nFailed to terminate child %d", pid);
+            return false;
         }
         else
         {
-            printf("\nChild was terminated (exit code %d)\n\n", WEXITSTATUS(wstat));
-            return false;   
-        }
+            printf("\nChild (pid %d) ended", wpid);
+            if(WIFEXITED(wstat) == true)
+            {
+                printf("\nChild exited successfully (exit code %d)\n\n", WEXITSTATUS(wstat));
+                return WEXITSTATUS(wstat);
+            }
+            else
+            {
+                printf("\nChild did not terminate normally\n\n");
+                return false;   
+            }
+        } 
     }
     if(pid == 0)
     {
-        printf("\nfork successfully created this child.");
+        printf("\nfork successfully created this child. %s, %s, %s", command[0], command[1], command[2]);
         printf("\nexecv call...");
         /* change newly created process with given commands */
         eres = execv(command[0], command);
@@ -139,8 +151,9 @@ bool do_exec(int count, ...)
             exit(1);
         }
     }
- 
+
     va_end(args);
+
     return true;
 }
 
@@ -151,7 +164,6 @@ bool do_exec(int count, ...)
 */
 bool do_exec_redirect(const char *outputfile, int count, ...)
 {
-
     va_list args;
     va_start(args, count);
     char * command[count+1];
@@ -173,6 +185,9 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+
     va_end(args);
+
     return true;
 }
+

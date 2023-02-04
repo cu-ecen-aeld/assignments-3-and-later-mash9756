@@ -136,7 +136,7 @@ bool do_exec(int count, ...)
         //execv(command[0], command);
         sleep(3);
         //printf("\nexecv returned, an error occured.");
-        exit(0);
+        //exit(0);
     }
 
 // /* var to store process status from wait() */

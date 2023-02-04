@@ -6,7 +6,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-
+#include <fcntl.h>
+#include <sys/stat.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -91,27 +92,28 @@ bool do_exec(int count, ...)
  *
 */
 
-/* var to store process status from wait() */
+    /* var to store process status from wait() */
     int wstat   = 0;
     pid_t pid   = 0;
     pid_t wpid  = 0;
     int eres    = 0;
 
-    /* create new child process */
-    printf("\nforking...");
-    /* flush stdout */
+    /* flush stdout for readability */
     fflush(stdout);
+
+    /* create new child process */
     pid = fork();
-    /* error handling for fork */
+    /* error handling for fork, returns -1 if child can't be created*/
     if(pid == -1)
     {
         printf("\nfork failed to create a new process");
         return false;
     }
+    /* Parent process, fork returns pid of created child */
     if(pid > 0)
     {
         printf("\nParent process: child is %d", pid);
-        printf("\nWaiting for child to change state...");
+        /* wait for child to exit */
         wpid = waitpid(pid, &wstat, 0);
         if(wpid == -1)
         {
@@ -121,10 +123,12 @@ bool do_exec(int count, ...)
         else
         {
             printf("\nChild (pid %d) ended", wpid);
+            /* check exit status of child, WIFEXITED indicates successful termination */
             if(WIFEXITED(wstat) == true)
             {
+                /* get specific exit status of child, >0 indicates an issue */
                 int exit_status = WEXITSTATUS(wstat);
-                printf("\nChild exited successfully (exit code %d)\n\n", wstat);
+                printf("\nChild exited with code %d\n\n", exit_status);
                 if(exit_status == 1)
                     return false;
                 else
@@ -139,20 +143,18 @@ bool do_exec(int count, ...)
     }
     if(pid == 0)
     {
-        printf("\nfork successfully created this child. %s, %s, %s", command[0], command[1], command[2]);
+        printf("\nfork successfully created this child.");
         /* change newly created process with given commands */
         eres = execv(command[0], &command[0]);
         /* error handling for execv */
         if(eres == -1)
         {
-            printf("\nexecv failed to alter the child\n\n");
+            printf("\nexecv failed to alter the child\n");
             exit(1);
         }
-        exit(1);
     }
 
     va_end(args);
-
     return true;
 }
 
@@ -184,6 +186,78 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+
+    int fd = open(outputfile, O_CREAT, 0644);
+    if(fd < 0)
+    {
+        printf("\nCouldnt create/open %s", outputfile);
+        return false;
+    }
+
+    /* var to store process status from wait() */
+    int wstat   = 0;
+    pid_t pid   = 0;
+    pid_t wpid  = 0;
+    int eres    = 0;
+
+    /* flush stdout for readability */
+    fflush(stdout);
+
+    /* create new child process */
+    pid = fork();
+    /* error handling for fork, returns -1 if child can't be created*/
+    if(pid == -1)
+    {
+        printf("\nfork failed to create a new process");
+        return false;
+    }
+    /* Parent process, fork returns pid of created child */
+    if(pid > 0)
+    {
+        close(fd);
+        printf("\nParent process: child is %d", pid);
+        /* wait for child to exit */
+        wpid = waitpid(pid, &wstat, 0);
+        if(wpid == -1)
+        {
+            printf("\nFailed to terminate child %d", pid);
+            return false;
+        }
+        else
+        {
+            printf("\nChild (pid %d) ended", wpid);
+            /* check exit status of child, WIFEXITED indicates successful termination */
+            if(WIFEXITED(wstat) == true)
+            {
+                /* get specific exit status of child, >0 indicates an issue */
+                int exit_status = WEXITSTATUS(wstat);
+                printf("\nChild exited with code %d\n\n", exit_status);
+                if(exit_status == 1)
+                    return false;
+                else
+                    return true;
+            }
+            else
+            {
+                printf("\nChild did not terminate normally\n\n");
+                return false;   
+            }
+        } 
+    }
+    if(pid == 0)
+    {
+        dup2(fd, 1);
+
+        printf("\nfork successfully created this child.");
+        /* change newly created process with given commands */
+        eres = execv(command[0], &command[0]);
+        /* error handling for execv */
+        if(eres == -1)
+        {
+            printf("\nexecv failed to alter the child\n");
+            exit(1);
+        }
+    }
 
     va_end(args);
 

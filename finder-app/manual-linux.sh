@@ -35,6 +35,12 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     git checkout ${KERNEL_VERSION}
 
     # TODO: Add your kernel build steps here
+    # from Module 2, Building the Linux Kernel, 7:05
+    make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- mrproper
+    make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- defconfig
+    make -j4 ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- all
+    make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- modules
+    make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- dtbs
 fi
 
 echo "Adding the Image in outdir"
@@ -48,6 +54,16 @@ then
 fi
 
 # TODO: Create necessary base directories
+# from Module 2, Linux Root Filesystems, 6:52
+mkdir rootfs
+cd rootfs
+mkdir bin dev etc home lib proc sbin sys tmp usr var
+cd usr
+mkdir bin lib sbin
+cd ..
+cd var
+mkdir log
+cd ..
 
 cd "$OUTDIR"
 if [ ! -d "${OUTDIR}/busybox" ]
@@ -56,17 +72,27 @@ git clone git://busybox.net/busybox.git
     cd busybox
     git checkout ${BUSYBOX_VERSION}
     # TODO:  Configure busybox
+    # from Module 2, Linux Root Filesystems, 10:23
+    make distclean
+    make defconfig
 else
     cd busybox
 fi
 
 # TODO: Make and install busybox
+# from Module 2, Linux Root Filesystems, updated slide 14
+make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu-
+make CONFIG-PREFIX="${OUTDIR}/rootfs" install
+
+# return to system root directory
+cd /
 
 echo "Library dependencies"
-${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
-${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
+aarch64-none-linux-gnu-readelf -a bin/busybox | grep "program interpreter"
+aarch64-none-linux-gnu-readelf -a bin/busybox | grep "Shared library"
 
 # TODO: Add library dependencies to rootfs
+
 
 # TODO: Make device nodes
 
@@ -76,5 +102,6 @@ ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 # on the target rootfs
 
 # TODO: Chown the root directory
+sudo chown -R root:root *
 
 # TODO: Create initramfs.cpio.gz

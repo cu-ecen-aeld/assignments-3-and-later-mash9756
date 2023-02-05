@@ -45,7 +45,7 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
 fi
 
 echo "Adding the Image in outdir"
-cd linux-stable/arch/arm64/boot
+cd /tmp/aeld/linux-stable/arch/arm64/boot
 cp Image ${OUTDIR}
 
 echo "Creating the staging directory for the root filesystem"
@@ -66,6 +66,9 @@ mkdir bin lib sbin
 cd ..
 cd var
 mkdir log
+cd ..
+cd home
+mkdir conf
 cd ..
 
 cd "$OUTDIR"
@@ -97,7 +100,9 @@ aarch64-none-linux-gnu-readelf -a bin/busybox | grep "Shared library"
 # TODO: Add library dependencies to rootfs
 # copy required libraries from sysroot
 cd ${SYSROOT}/aarch64-none-linux-gnu/libc/lib64
-cp libm.so.6 libresolv.so.2 libc.so.6 ${OUTDIR}/rootfs/lib
+cp libm.so.6 libresolv.so.2 libc.so.6 ${OUTDIR}/rootfs/lib64
+cd ${SYSROOT}/aarch64-none-linux-gnu/libc/lib
+cp ld-linux-aarch64.so.1 ${OUTDIR}/rootfs/lib
 
 # TODO: Make device nodes
 # from Module 2, Linux Root Filesystems, updated slide 16
@@ -112,8 +117,8 @@ make CROSS_COMPILE
 
 # TODO: Copy the finder related scripts and executables to the /home directory
 # on the target rootfs
-cp conf/username.txt aarch64-writer finder-test.sh finder.sh autorun-qemu.sh ${OUTDIR}/rootfs/home
-
+cp aarch64-writer finder-test.sh finder.sh autorun-qemu.sh ${OUTDIR}/rootfs/home
+cp conf/username.txt conf/assignment.txt ${OUTDIR}/rootfs/home/conf
 
 # TODO: Chown the root directory
 # from Module 2, Linux Root Filesystems, updated slide 16

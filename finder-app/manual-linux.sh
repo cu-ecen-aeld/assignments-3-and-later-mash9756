@@ -45,7 +45,7 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
 fi
 
 echo "Adding the Image in outdir"
-cd /tmp/aeld/linux-stable/arch/arm64/boot
+cd ${OUTDIR}/linux-stable/arch/arm64/boot
 cp Image ${OUTDIR}
 
 echo "Creating the staging directory for the root filesystem"
@@ -111,7 +111,7 @@ sudo mknod -m 666 dev/null c 1 3
 sudo mknod -m 600 dev/console c 5 1
 
 # TODO: Clean and build the writer utility
-cd /home/admin/Documents/assignment3/assignment-3-and-later-mash9756/finder-app
+cd ${FINDER_APP_DIR} #/home/admin/Documents/assignment3/assignment-3-and-later-mash9756/finder-app
 make clean
 make CROSS_COMPILE
 

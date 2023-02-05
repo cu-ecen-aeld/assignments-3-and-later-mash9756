@@ -12,7 +12,6 @@ BUSYBOX_VERSION=1_33_1
 FINDER_APP_DIR=$(realpath $(dirname $0))
 ARCH=arm64
 CROSS_COMPILE=aarch64-none-linux-gnu-
-SYSROOT=/home/admin/Downloads/install-lnx/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu
 
 if [ $# -lt 1 ]
 then
@@ -39,14 +38,13 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     # from Module 2, Building the Linux Kernel, 7:05
     make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- mrproper
     make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- defconfig
-    make -j4 ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- all
-    make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- modules
+    make -j16 ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- all
+    #make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- modules
     make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- dtbs
 fi
 
 echo "Adding the Image in outdir"
-cd ${OUTDIR}/linux-stable/arch/arm64/boot
-cp Image ${OUTDIR}
+cp ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ${OUTDIR}/
 
 echo "Creating the staging directory for the root filesystem"
 cd "$OUTDIR"
@@ -80,15 +78,15 @@ git clone git://busybox.net/busybox.git
     # TODO:  Configure busybox
     # from Module 2, Linux Root Filesystems, 10:23
     make distclean
-    make defconfig
+    make CONFIG_PREFIX=${OUTDIR}/rootfs defconfig
 else
     cd busybox
 fi
 
 # TODO: Make and install busybox
 # from Module 2, Linux Root Filesystems, updated slide 14
-make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu-
-make CONFIG_PREFIX="${OUTDIR}/rootfs" ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- install
+make -j16 CONFIG_PREFIX=${OUTDIR}/rootfs ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu-
+make CONFIG_PREFIX=${OUTDIR}/rootfs ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- install
 
 # return to rootfs diretory
 cd ${OUTDIR}/rootfs
@@ -99,9 +97,12 @@ aarch64-none-linux-gnu-readelf -a bin/busybox | grep "Shared library"
 
 # TODO: Add library dependencies to rootfs
 # copy required libraries from sysroot
-cd ${SYSROOT}/aarch64-none-linux-gnu/libc/lib64
+SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot)
+echo "${SYSROOT}"
+
+cd ${SYSROOT}/lib64
 cp libm.so.6 libresolv.so.2 libc.so.6 ${OUTDIR}/rootfs/lib64
-cd ${SYSROOT}/aarch64-none-linux-gnu/libc/lib
+cd ${SYSROOT}/lib
 cp ld-linux-aarch64.so.1 ${OUTDIR}/rootfs/lib
 
 # TODO: Make device nodes

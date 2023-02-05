@@ -96,7 +96,6 @@ bool do_exec(int count, ...)
     int wstat   = 0;
     pid_t pid   = 0;
     pid_t wpid  = 0;
-    int eres    = 0;
 
     /* flush stdout for readability */
     fflush(stdout);
@@ -106,54 +105,42 @@ bool do_exec(int count, ...)
     /* error handling for fork, returns -1 if child can't be created*/
     if(pid == -1)
     {
-        printf("\nfork failed to create a new process");
+        perror("fork failed to create child process");
         return false;
     }
-    /* Parent process, fork returns pid of created child */
-    if(pid > 0)
+    else if(pid == 0)
     {
-        printf("\nParent process: child is %d", pid);
+        /* change newly created process with given commands */
+        execv(command[0], command);
+        /* error handling for execv */
+        perror("execv failed to alter the child");
+        exit(-1);
+    }
+    /* Parent process, fork returns pid of created child */
+    else
+    {
         /* wait for child to exit */
         wpid = waitpid(pid, &wstat, 0);
         if(wpid == -1)
         {
-            printf("\nFailed to terminate child %d", pid);
+            perror("waitpid failure");
             return false;
+        }
+        /* check exit status of child, WIFEXITED indicates successful termination */
+        if(WIFEXITED(wstat) == true)
+        {
+            if(wstat)
+                return false;
+            else
+                return true;
         }
         else
         {
-            printf("\nChild (pid %d) ended", wpid);
-            /* check exit status of child, WIFEXITED indicates successful termination */
-            if(WIFEXITED(wstat) == true)
-            {
-                /* get specific exit status of child, >0 indicates an issue */
-                int exit_status = WEXITSTATUS(wstat);
-                printf("\nChild exited with code %d\n\n", exit_status);
-                if(exit_status == 1)
-                    return false;
-                else
-                    return true;
-            }
-            else
-            {
-                printf("\nChild did not terminate normally\n\n");
-                return false;   
-            }
-        } 
-    }
-    if(pid == 0)
-    {
-        printf("\nfork successfully created this child.");
-        /* change newly created process with given commands */
-        eres = execv(command[0], command);
-        /* error handling for execv */
-        if(eres == -1)
-        {
-            printf("\nexecv failed to alter the child\n");
-            exit(1);
+            perror("Child did not terminate normally");
+            return false;   
         }
     }
-
+    
     va_end(args);
     return true;
 }
@@ -186,83 +173,68 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
-
-    int fd = open(outputfile, O_CREAT, 0777);
-    if(fd < 0)
+    /* taken directly from stackoverflow reference */
+    int fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0664);
+    if(fd == -1)
     {
-        printf("\nCouldnt create/open %s", outputfile);
+        perror("failed to open file");
         return false;
     }
 
     /* var to store process status from wait() */
     int wstat   = 0;
+    /* store return from fork and wait */
     pid_t pid   = 0;
     pid_t wpid  = 0;
-    int eres    = 0;
 
     /* flush stdout for readability */
     fflush(stdout);
 
     /* create new child process */
     pid = fork();
-    /* error handling for fork, returns -1 if child can't be created*/
+    /* error handling for fork, returns -1 if child can't be created */
     if(pid == -1)
     {
-        printf("\nfork failed to create a new process");
+        perror("fork() failed to create child process");
         return false;
     }
+    else if(pid == 0)
+    {
+        /* redirect stdout to opened file */
+        if(dup2(fd, 1) < 0)
+        {
+            perror("dup2 failed to redirect output");
+            return false;
+        }
+        close(fd);
+        /* change newly created process with given commands */
+        execv(command[0], command);
+        perror("execv failed to alter child process");
+        exit(-1);
+    }
     /* Parent process, fork returns pid of created child */
-    if(pid > 0)
+    else
     {
         close(fd);
-        printf("\nParent process: child is %d", pid);
         /* wait for child to exit */
         wpid = waitpid(pid, &wstat, 0);
         if(wpid == -1)
         {
-            printf("\nFailed to terminate child %d", pid);
+            perror("waitpid failure");
             return false;
+        }
+        /* check exit status of child, WIFEXITED indicates successful termination */
+        if(WIFEXITED(wstat) == true)
+        {
+            if(wstat)
+                return false;
+            else
+                return true;
         }
         else
         {
-            printf("\nChild (pid %d) ended", wpid);
-            /* check exit status of child, WIFEXITED indicates successful termination */
-            if(WIFEXITED(wstat) == true)
-            {
-                /* get specific exit status of child, >0 indicates an issue */
-                int exit_status = WEXITSTATUS(wstat);
-                printf("\nChild exited with code %d\n\n", exit_status);
-                if(exit_status == 1)
-                    return false;
-                else
-                    return true;
-            }
-            else
-            {
-                printf("\nChild did not terminate normally\n\n");
-                return false;   
-            }
-        } 
-    }
-    if(pid == 0)
-    {
-        
-        dup2(fd, 1);
-        // printf("\nPointing 1 to fd: %d", dupres);
-        // if(dupres < 0)
-        // {
-        //    printf("\ndup2 failed");
-        //    return false;
-        // }
-        close(fd);
-        printf("\nfork successfully created this child.");
-        /* change newly created process with given commands */
-        eres = execv(command[0], command);
-        /* error handling for execv */
-        if(eres == -1)
-        {
-            printf("\nexecv failed to alter the child\n");
-            exit(1);
+            perror("Child did not terminate normally");
+            return false;   
         }
     }
 

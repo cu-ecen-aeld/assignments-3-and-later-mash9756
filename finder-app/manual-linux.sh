@@ -12,6 +12,7 @@ BUSYBOX_VERSION=1_33_1
 FINDER_APP_DIR=$(realpath $(dirname $0))
 ARCH=arm64
 CROSS_COMPILE=aarch64-none-linux-gnu-
+SYSROOT=/home/admin/Downloads/install-lnx/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu
 
 if [ $# -lt 1 ]
 then
@@ -44,6 +45,8 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
 fi
 
 echo "Adding the Image in outdir"
+cd linux-stable/arch/arm64/boot
+cp Image ${OUTDIR}
 
 echo "Creating the staging directory for the root filesystem"
 cd "$OUTDIR"
@@ -57,7 +60,7 @@ fi
 # from Module 2, Linux Root Filesystems, 6:52
 mkdir rootfs
 cd rootfs
-mkdir bin dev etc home lib proc sbin sys tmp usr var
+mkdir bin dev etc home lib lib64 proc sbin sys tmp usr var
 cd usr
 mkdir bin lib sbin
 cd ..
@@ -82,26 +85,42 @@ fi
 # TODO: Make and install busybox
 # from Module 2, Linux Root Filesystems, updated slide 14
 make ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu-
-make CONFIG-PREFIX="${OUTDIR}/rootfs" install
+make CONFIG_PREFIX="${OUTDIR}/rootfs" ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- install
 
-# return to system root directory
-cd /
+# return to rootfs diretory
+cd ${OUTDIR}/rootfs
 
 echo "Library dependencies"
 aarch64-none-linux-gnu-readelf -a bin/busybox | grep "program interpreter"
 aarch64-none-linux-gnu-readelf -a bin/busybox | grep "Shared library"
 
 # TODO: Add library dependencies to rootfs
-
+# copy required libraries from sysroot
+cd ${SYSROOT}/aarch64-none-linux-gnu/libc/lib64
+cp libm.so.6 libresolv.so.2 libc.so.6 ${OUTDIR}/rootfs/lib
 
 # TODO: Make device nodes
+# from Module 2, Linux Root Filesystems, updated slide 16
+cd ${OUTDIR}/rootfs
+sudo mknod -m 666 dev/null c 1 3
+sudo mknod -m 600 dev/console c 5 1
 
 # TODO: Clean and build the writer utility
+cd /home/admin/Documents/assignment3/assignment-3-and-later-mash9756/finder-app
+make clean
+make CROSS_COMPILE
 
 # TODO: Copy the finder related scripts and executables to the /home directory
 # on the target rootfs
+cp conf/username.txt aarch64-writer finder-test.sh finder.sh autorun-qemu.sh ${OUTDIR}/rootfs/home
+
 
 # TODO: Chown the root directory
+# from Module 2, Linux Root Filesystems, updated slide 16
+cd ${OUTDIR}/rootfs
 sudo chown -R root:root *
 
 # TODO: Create initramfs.cpio.gz
+find . | cpio -H newc -ov --owner root:root > ${OUTDIR}/initramfs.cpio
+cd ..
+gzip -f initramfs.cpio

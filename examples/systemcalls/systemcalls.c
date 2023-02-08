@@ -1,4 +1,13 @@
 #include "systemcalls.h"
+/* added for system() */
+#include <stdlib.h>
+
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/wait.h>
+
+#include <fcntl.h>
+#include <sys/stat.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,6 +25,30 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+
+    /* check for null cmd */
+    if(cmd == NULL)
+    {
+        printf("\r\ncmd arguement invalid.");
+        return false;
+    }
+    
+    /* attempt to create new process with given command */
+    int result = system(cmd);
+
+    /* error handling for system call failures */
+    if(result == -1)
+    {
+        printf("\r\nsystem call returned -1, child process could not be created.");
+        return false;
+    }
+    else if(result == 127)
+    {
+        printf("\r\nsystem call returned 127, child process could not execute shell.");
+        return false;
+    }
+    else
+        return true;
 
     return true;
 }
@@ -59,8 +92,56 @@ bool do_exec(int count, ...)
  *
 */
 
-    va_end(args);
+    /* var to store process status from wait() */
+    int wstat   = 0;
+    pid_t pid   = 0;
+    pid_t wpid  = 0;
 
+    /* flush stdout for readability */
+    fflush(stdout);
+
+    /* create new child process */
+    pid = fork();
+    /* error handling for fork, returns -1 if child can't be created*/
+    if(pid == -1)
+    {
+        perror("fork failed to create child process");
+        return false;
+    }
+    else if(pid == 0)
+    {
+        /* change newly created process with given commands */
+        execv(command[0], command);
+        /* error handling for execv */
+        perror("execv failed to alter the child");
+        exit(-1);
+    }
+    /* Parent process, fork returns pid of created child */
+    else
+    {
+        /* wait for child to exit */
+        wpid = waitpid(pid, &wstat, 0);
+        if(wpid == -1)
+        {
+            perror("waitpid failure");
+            return false;
+        }
+        /* check exit status of child, WIFEXITED indicates successful termination */
+        if(WIFEXITED(wstat) == true)
+        {
+            if(wstat)
+                return false;
+            else
+                return true;
+        }
+        else
+        {
+            perror("Child did not terminate normally");
+            return false;   
+        }
+    }
+    
+    va_end(args);
     return true;
 }
 
@@ -92,8 +173,73 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+    /* taken directly from stackoverflow reference */
+    int fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0664);
+    if(fd == -1)
+    {
+        perror("failed to open file");
+        return false;
+    }
+
+    /* var to store process status from wait() */
+    int wstat   = 0;
+    /* store return from fork and wait */
+    pid_t pid   = 0;
+    pid_t wpid  = 0;
+
+    /* flush stdout for readability */
+    fflush(stdout);
+
+    /* create new child process */
+    pid = fork();
+    /* error handling for fork, returns -1 if child can't be created */
+    if(pid == -1)
+    {
+        perror("fork() failed to create child process");
+        return false;
+    }
+    else if(pid == 0)
+    {
+        /* redirect stdout to opened file */
+        if(dup2(fd, 1) < 0)
+        {
+            perror("dup2 failed to redirect output");
+            return false;
+        }
+        close(fd);
+        /* change newly created process with given commands */
+        execv(command[0], command);
+        perror("execv failed to alter child process");
+        exit(-1);
+    }
+    /* Parent process, fork returns pid of created child */
+    else
+    {
+        close(fd);
+        /* wait for child to exit */
+        wpid = waitpid(pid, &wstat, 0);
+        if(wpid == -1)
+        {
+            perror("waitpid failure");
+            return false;
+        }
+        /* check exit status of child, WIFEXITED indicates successful termination */
+        if(WIFEXITED(wstat) == true)
+        {
+            if(wstat)
+                return false;
+            else
+                return true;
+        }
+        else
+        {
+            perror("Child did not terminate normally");
+            return false;   
+        }
+    }
 
     va_end(args);
 
     return true;
 }
+

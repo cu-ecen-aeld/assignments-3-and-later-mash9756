@@ -1,3 +1,5 @@
+#!/bin/sh
+
 #   file:       finder.sh
 #   author:     Mark Sherman
 #   Date:       01/22/2023
@@ -5,8 +7,6 @@
 
 #   AESD Spring 2023
 #   Assignment 1
-
-#!/bin/bash
 
 #   create variables for passed inputs
 filesdir=$1;

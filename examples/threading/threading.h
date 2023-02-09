@@ -16,14 +16,14 @@ struct thread_data
      * your thread implementation.
      */
 
-    pthread_t thread_ID;
+    //pthread_t thread_ID;
 
     /* hold wait times in ms */
-    int obtain_wait_ms;
-    int release_wait_ms;
+    unsigned int obtain_wait_ms;
+    unsigned int release_wait_ms;
 
     /* mutex for thread */
-    pthread_mutex_t mutex;
+    pthread_mutex_t *mutex;
 
     /**
      * Set to true if the thread completed with success, false

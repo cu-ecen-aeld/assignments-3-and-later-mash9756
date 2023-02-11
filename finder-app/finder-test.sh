@@ -58,7 +58,7 @@ fi
 for i in $( seq 1 $NUMFILES)
 do
 	# changed from writer.sh to just writer, natively compiled writer.c
-	./aarch64-writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
+	aarch64-writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
 done
 # create finder output file
 cd /tmp

@@ -1,3 +1,5 @@
+CC := aarch64-none-linux-gnu-gcc
+
 default: 
 	gcc -g -Wall -c -o writer.o writer.c
 	gcc -g -Wall -I/ writer.o -o writer

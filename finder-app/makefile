@@ -1,4 +1,4 @@
-
+CROSS_COMPILE= 
 CC=$(CROSS_COMPILE)gcc
 CFLAGS=-Wall -Werror
 SOURCE=writer.c

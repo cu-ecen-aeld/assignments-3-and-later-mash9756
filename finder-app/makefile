@@ -1,16 +1,15 @@
-CC ?= $(CROSS_COMPILE)gcc
+CC = $(CROSS_COMPILE)gcc
 FLAGS=-Wall -Werror
 
-# writer recipe
 .PHONY : all
 all: writer
 
-writer: writer_o
-	$(CC) $(FLAGS)  writer.o -o writer
+writer: aarch64-writer_o
+	$(CC) $(FLAGS)  aarch64-writer.o -o aarch64-writer
 
-writer_o:
-	$(CC) $(FLAGS) -c writer.c -o writer.o
+aarch64-writer_o:
+	$(CC) $(FLAGS) -c writer.c -o aarch64-writer.o
 
 .PHONY: clean
 clean:
-	rm -f *.o writer
+	rm -f *.o aarch64-writer

@@ -60,9 +60,6 @@ do
 	# changed from writer.sh to just writer, natively compiled writer.c
 	aarch64-writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
 done
-# create finder output file
-cd /tmp
-touch assignment4-result,txt
 
 OUTPUTSTRING=$(finder.sh "$WRITEDIR" "$WRITESTR")
 echo ${OUTPUTSTRING} > /tmp/assignment4-result.txt

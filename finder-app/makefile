@@ -1,10 +1,10 @@
-CROSS_COMPILE= 
-CC=gcc
+
+CC = ${CROSS_COMPILE}gcc
 CFLAGS=-Wall -Werror
 SOURCE=writer.c
 
 all:
-	$(CROSS_COMPILE)$(CC) $(CFLAGS) $(SOURCE) -o aarch64-writer
+	$(CC) $(CFLAGS) $(SOURCE) -o aarch64-writer
 
 clean:
 	rm -f *.o *.elf aarch64-writer

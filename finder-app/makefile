@@ -1,4 +1,4 @@
-CC := aarch64-none-linux-gnu-gcc
+CC := ${CROSS_COMPILE}gcc
 
 default: 
 	gcc -g -Wall -c -o writer.o writer.c

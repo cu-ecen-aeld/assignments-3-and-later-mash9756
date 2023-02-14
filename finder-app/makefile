@@ -1,10 +1,15 @@
-default: 
-	gcc -g -Wall -c -o writer.o writer.c
-	gcc -g -Wall -I/ writer.o -o writer
+CC = $(CROSS_COMPILE)gcc
+FLAGS=-Wall -Werror
 
-CROSS_COMPILE:
-	aarch64-none-linux-gnu-gcc -Wall -c -o aarch64-writer.o writer.c
-	aarch64-none-linux-gnu-gcc -Wall -I/ aarch64-writer.o -o aarch64-writer
+.PHONY : all
+all: writer
 
+writer: aarch64-writer_o
+	$(CC) $(FLAGS)  aarch64-writer.o -o aarch64-writer
+
+aarch64-writer_o:
+	$(CC) $(FLAGS) -c writer.c -o aarch64-writer.o
+
+.PHONY: clean
 clean:
-	rm -f *.o *.elf *.map writer aarch64-writer
+	rm -f *.o aarch64-writer

@@ -8,148 +8,269 @@
 */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 
+#include <signal.h>
+
 #include <sys/types.h>
+#include <sys/wait.h>
+
 #include <sys/socket.h>
 #include <netdb.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <syslog.h>
 #include <errno.h>
 
+#include <linux/fs.h>
+#include <fcntl.h>
+
 /* port string for socket setup */
 #define PORT            ("9000")
 /* arbitrary max allows pending connections allowed before socket refuses */
-#define BACKLOG         (5)
+#define BACKLOG         (10)
 /* max receive buffer size in bytes */
-#define MAX_PACKET_SIZE (64)
+#define MAX_BUF_SIZE    (1048576)
+/* Output file path definition */
+#define OUTPUT_FILE     ("/var/tmp/aesdsocketdata")
+
+/* global for signal handler access */
+bool cleanExit  = false;
+int socketFD    = 0;
 
 /**
- * @name    cleanup
- * @brief   closes socket fd's, as well as output file. Free's malloc'd socket address info
+ * @name    get_in_addr
  * 
- * @param   fd1     -   socket fd
- * @param   fd2     -   socket fd
- * @param   file    -   output file
- * @param   addr    -   socket address info
- *  
- * @return  VOID
+ * @brief   extracts IPv4 or IPv6 IP address from passed socket  
+ *          taken from https://beej.us/guide/bgnet/html/#a-simple-stream-server
+ * 
+ * @param   sa  - socket
+ * 
+ * @return  VOID    
 */
-void cleanup(int fd1, int fd2, FILE *file, struct addrinfo *addr)
+void *get_in_addr(struct sockaddr *sa)
 {
-    close(fd1);
-    close(fd2);
-    fclose(file);
-    freeaddrinfo(addr);
+    if (sa->sa_family == AF_INET) 
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
+void signal_handler(int sig_num)
+{
+    if(sig_num == SIGINT || sig_num == SIGTERM)
+    {
+        syslog(LOG_DEBUG, "\nSignal received, starting clean exit...\n");
+        shutdown(socketFD, SHUT_RDWR);
+        cleanExit = true;
+    }
 }
 
 int main(int argc, char *argv[])
 {
     printf("\n\nAESD Socket\n\n");
-/* open log for debug and error messages */
+
+    FILE *fptr;
+
+/* -------------------------- setup signal handlers -------------------------- */
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    sleep(1);
+
+/* -------------------------- open log for debug and error messages -------------------------- */
     openlog(NULL, 0, LOG_USER);
  
-    printf("\nfile setup\n");
-/* setup file to write results into */
-    FILE *fptr;
-    fptr = fopen("/var/tmp/aesdsocketdata", "w");
+/* -------------------------- recv setup -------------------------- */
+    bool recvDone   = false;
+    long recvBytes   = 0;
+    long totalBytes  = 0;
+    char recvBuf[MAX_BUF_SIZE];
 
+/* -------------------------- setup to hold socket address info from getaddrinfo -------------------------- */
     printf("\nsocket address setup\n");
-/* setup to hold socket address info from getaddrinfo */
     struct addrinfo *addrRes;
-    int socketFD = 0;
+    int yes = 1;
 
+/* -------------------------- setup addrinfo for socket -------------------------- */
     printf("\ngetaddrinfo setup\n");
-/* setup addrinfo for socket */
     struct addrinfo hints;
     /* clear struct memory space */
-    memset(&hints, 0, sizeof(struct addrinfo));
+    memset(&hints, 0, sizeof(hints));
     /* set addrinfo defaults */
     hints.ai_flags     = AI_PASSIVE;
-    hints.ai_family    = AF_INET;
+    hints.ai_family    = AF_UNSPEC;
     hints.ai_socktype  = SOCK_STREAM;
 
+/* -------------------------- client info for connections -------------------------- */
     printf("\nclient setup\n");
-/* client info for connections */
-    struct sockaddr clientAddr;
+    struct sockaddr_storage clientAddr;
     /* size stored for accept call */
-    socklen_t clientSize = sizeof(clientAddr);
+    socklen_t clientSize;
     int clientFD = 0;
     /* received data buffer */
-    char recvBuf[MAX_PACKET_SIZE];
+    char buf[MAX_BUF_SIZE];
+    long recvIndex = 0;
+
+    char clientIP[INET6_ADDRSTRLEN];
+
+    long i = 0;
 
     printf("\ngetaddrinfo\n");
-/* returns malloc'd socket addrinfo in final parameter*/
+/* -------------------------- returns malloc'd socket addrinfo in final parameter -------------------------- */
     int res = getaddrinfo(NULL, PORT, &hints, &addrRes);
     if(res != 0)
     {
         syslog(LOG_ERR, "getaddrinfo failed, error code %d", res);
-        cleanup(socketFD, clientFD, fptr, addrRes);
-        return -1;
+        printf("getaddrinfo failed, error code %d", res);
+        exit(-1);
     }
 
+/* -------------------------- create socket with IPv4 addressing, streaming type, with default options -------------------------- */
     printf("\nsocket\n");
-/* create socket with IPv4 addressing, streaming type, with default options */
     socketFD = socket(addrRes->ai_family, addrRes->ai_socktype, addrRes->ai_protocol);
     if(socketFD == -1)
     {
         syslog(LOG_ERR, "socket failed to create new socket fd");
-        cleanup(socketFD, clientFD, fptr, addrRes);
-        return -1;
+        printf("socket failed to create new socket fd");
+        exit(-1);
     }
 
+/* -------------------------- use setsockopt to allow for socket address reuse -------------------------- */
+    printf("\nsetsockopt\n");
+   
+    if(setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1)
+    {
+        syslog(LOG_ERR, "setsockopt failed to config address reuse");
+        printf("setsockopt failed to config address reuse");
+        close(socketFD);
+        exit(-1);
+    }
+
+
+/* -------------------------- bind created socket ID to generated socket address -------------------------- */
     printf("\nbind\n");
-/* bind created socket ID to generated socket address */
-    res = bind(socketFD, addrRes->ai_addr, sizeof(struct sockaddr));
+    res = bind(socketFD, addrRes->ai_addr, addrRes->ai_addrlen);
     if(res != 0)
     {
         syslog(LOG_ERR, "bind failed, see errno for details");
-        cleanup(socketFD, clientFD, fptr, addrRes);
-        return -1;
+        printf("bind failed, see errno for details");
+        close(socketFD);
+        exit(-1);
     }
     
+    /* free stuct, no longer needed after bind step */
+    freeaddrinfo(addrRes);
+
     printf("\nlisten\n");
-/* listen for connections on created socket */
+/* -------------------------- listen for connections on created socket -------------------------- */
     res = listen(socketFD, BACKLOG);
     if(res != 0)
     {
         syslog(LOG_ERR, "listen failed, see errno for details");
-        cleanup(socketFD, clientFD, fptr, addrRes);
-        return -1;
+        printf("listen failed, see errno for details");
+        close(socketFD);
+        exit(-1);
     }
 
-    printf("\naccept\n");
-/* accecpt incoming connection and save client info */
-    res = accept(socketFD, &clientAddr, &clientSize);
-    if(res == -1)
+/* --------------------------  -------------------------- */
+
+/* -------------------------- Loop for accepting connections and receiving packets -------------------------- */
+    while(!cleanExit)
     {
-        syslog(LOG_ERR, "accept failed, see errno for details");
-        cleanup(socketFD, clientFD, fptr, addrRes);
-        return -1;
-    }
+    /* accept incoming connection and save client info */
+        printf("\naccept\n");
+        clientSize = sizeof(clientAddr);
+        res = accept(socketFD, (struct sockaddr *)&clientAddr, &clientSize);
+        if(res == -1)
+        {
+            // syslog(LOG_ERR, "accept failed, see errno for details");
+            printf("accept failed, see errno for details");
+            // close(socketFD);
+            // exit(-1);
+            continue;
+        }
     /* save connected client's FD for send/recv later */
-    clientFD = res;
+        clientFD = res;
     /* log accepted connection and client's IP address */
-    syslog(LOG_DEBUG, "Accepted connection from %s", clientAddr.sa_data);
+        inet_ntop(clientAddr.ss_family, get_in_addr((struct sockaddr *)&clientAddr), clientIP, sizeof(clientIP));
+        syslog(LOG_DEBUG, "Accepted connection from %s", clientIP);
+        printf("\nAccepted connection from %s", clientIP);
 
-    printf("\nrecv\n");
-/* receive packets from connected client */
-    res = recv(clientFD, recvBuf, sizeof(recvBuf), 0);
-    if(res == -1)
-    {
-        syslog(LOG_ERR, "recv failed, see errno for details");
-        cleanup(socketFD, clientFD, fptr, addrRes);
-        return -1;
+    /* clear last recv data */
+        recvDone    = false;
+        totalBytes  = 0;
+        recvIndex   = 0;
+
+        while(!recvDone)
+        {
+        /* receive packet from connected client */
+            printf("\nrecv\n");
+            recvBytes = recv(clientFD, recvBuf, MAX_BUF_SIZE-1, 0);
+            if(recvBytes == -1)
+            {
+                syslog(LOG_ERR, "recv failed, see errno for details");
+                syslog(LOG_DEBUG, "closing connection from %s", clientIP);
+                close(clientFD);
+                exit(-1);
+            }
+
+        /* track total bytes received */
+            totalBytes += recvBytes;
+        /* load recv buffer data into second buffer for file write */
+            for(i = 0; i < recvBytes; i++)
+                buf[recvIndex + i] = recvBuf[i];
+        
+        /* track buffer index from previous write */
+            recvIndex += recvBytes;
+        /* check for end of packet, \n terminated */
+            if(recvBuf[recvIndex - 1] == '\n')
+                recvDone = true;
+        }
+
+        printf("%ld bytes received from %s", recvBytes, clientIP);
+        syslog(LOG_DEBUG, "%ld bytes received from %s", recvBytes, clientIP);
+
+    /* null terminate buffer to write to file as string */
+        buf[totalBytes] = '\0';
+        totalBytes += 1;
+
+    /* setup file to write results into */
+        printf("\nfile setup\n");
+        fptr = fopen(OUTPUT_FILE, "a+");
+        printf("write to file\n");
+        fputs(buf, fptr);
+
+    /* clear buf for file readback */
+        memset(buf, 0, MAX_BUF_SIZE * sizeof(buf[0]));
+    /* readback and send contents of file back */
+        fseek(fptr, 0, SEEK_SET);
+        while(fgets(buf, MAX_BUF_SIZE, fptr) != NULL)
+        {
+            res = send(clientFD, buf, strlen(buf), 0);
+            if(res == -1)
+            {
+                syslog(LOG_ERR, "send failed, see errno for details");
+            }
+        }
+
+        printf("\ncleanup and close\n");
+        syslog(LOG_DEBUG, "closing connection from %s", clientIP);
+        fclose(fptr);
+        close(socketFD);
     }
-    syslog(LOG_DEBUG, "%d bytes received from %s", res, clientAddr.sa_data);
 
-    printf("\nprint to file\n");
-    //fprintf(fptr, "\n%d bytes received from %s", res, clientAddr.sa_data);
-    fprintf(fptr, "%s", recvBuf);
-
-    printf("\ncleanup and close\n");
-    cleanup(socketFD, clientFD, fptr, addrRes);
-    return 0;
+    while(cleanExit)
+    {
+        printf("\nClean exit interrupt received, closing...\n");
+        syslog(LOG_DEBUG, "closing connection from %s", clientIP);
+        close(socketFD);
+        close(clientFD);
+        remove(OUTPUT_FILE);
+        exit(0);
+    }
 }

@@ -70,6 +70,12 @@ void signal_handler(int sig_num)
         shutdown(socketFD, SHUT_RDWR);
         cleanExit = true;
     }
+    else
+    {
+        syslog(LOG_ERR, "\nUnknown signal received\n");
+        printf("\nUnknown signal received\n");
+        exit(-1);
+    }
 }
 
 int main(int argc, char *argv[])
@@ -239,6 +245,8 @@ int main(int argc, char *argv[])
         res = accept(socketFD, (struct sockaddr *)&clientAddr, &clientSize);
         if(res == -1)
         {
+            if(errno == EINTR)
+                continue;
             syslog(LOG_ERR, "accept failed, see errno for details");
             continue;
         }
@@ -261,10 +269,16 @@ int main(int argc, char *argv[])
             recvBytes = recv(clientFD, recvBuf, MAX_BUF_SIZE-1, 0);
             if(recvBytes == -1)
             {
-                syslog(LOG_ERR, "recv failed, see errno for details");
-                syslog(LOG_DEBUG, "closing connection from %s", clientIP);
-                close(clientFD);
-                exit(-1);
+                if(errno == EINTR)
+                    continue;
+                else
+                {
+                    syslog(LOG_ERR, "recv failed, see errno for details");
+                    syslog(LOG_DEBUG, "closing connection from %s", clientIP);
+                    close(clientFD);
+                    exit(-1);
+                }
+                
             }
 
         /* track total bytes received */
@@ -302,6 +316,8 @@ int main(int argc, char *argv[])
             res = send(clientFD, buf, strlen(buf), 0);
             if(res == -1)
             {
+                if(errno == EINTR)
+                    continue;
                 syslog(LOG_ERR, "send failed, see errno for details");
             }
         }

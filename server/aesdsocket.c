@@ -1,8 +1,8 @@
 /**
  *  @file       aesdsocket.c
  *  @author     Mark Sherman
- *  @version    1.0
- *  @date       02/19/2023
+ *  @version    1.1
+ *  @date       02/25/2023
  * 
  *  @brief      
 */
@@ -15,8 +15,9 @@
 #include <unistd.h>
 
 #include <signal.h>
-
+#include <sys/stat.h>
 #include <sys/types.h>
+
 #include <sys/wait.h>
 
 #include <sys/socket.h>
@@ -35,7 +36,7 @@
 /* arbitrary max allows pending connections allowed before socket refuses */
 #define BACKLOG         (10)
 /* max receive buffer size in bytes */
-#define MAX_BUF_SIZE    (1048576)
+#define MAX_BUF_SIZE    (65535)
 /* Output file path definition */
 #define OUTPUT_FILE     ("/var/tmp/aesdsocketdata")
 
@@ -82,22 +83,18 @@ int main(int argc, char *argv[])
     signal(SIGTERM, signal_handler);
     sleep(1);
 
+/* -------------------------- check if daemon option selected -------------------------- */
+    pid_t daemonPid = 0;
+    pid_t daemonSid = 0;
+    bool isDaemon   = false;
+    /* argc is always at least 1, and argv[0] is program name */
+    if(argc >= 2 && strcmp(argv[1], "-d") == 0)
+        isDaemon = true;
+
 /* -------------------------- open log for debug and error messages -------------------------- */
     openlog(NULL, 0, LOG_USER);
- 
-/* -------------------------- recv setup -------------------------- */
-    bool recvDone   = false;
-    long recvBytes   = 0;
-    long totalBytes  = 0;
-    char recvBuf[MAX_BUF_SIZE];
-
-/* -------------------------- setup to hold socket address info from getaddrinfo -------------------------- */
-    printf("\nsocket address setup\n");
-    struct addrinfo *addrRes;
-    int yes = 1;
 
 /* -------------------------- setup addrinfo for socket -------------------------- */
-    printf("\ngetaddrinfo setup\n");
     struct addrinfo hints;
     /* clear struct memory space */
     memset(&hints, 0, sizeof(hints));
@@ -107,7 +104,6 @@ int main(int argc, char *argv[])
     hints.ai_socktype  = SOCK_STREAM;
 
 /* -------------------------- client info for connections -------------------------- */
-    printf("\nclient setup\n");
     struct sockaddr_storage clientAddr;
     /* size stored for accept call */
     socklen_t clientSize;
@@ -115,34 +111,40 @@ int main(int argc, char *argv[])
     /* received data buffer */
     char buf[MAX_BUF_SIZE];
     long recvIndex = 0;
-
     char clientIP[INET6_ADDRSTRLEN];
 
+/* -------------------------- recv setup -------------------------- */
+    bool recvDone   = false;
+    long recvBytes   = 0;
+    long totalBytes  = 0;
+    char recvBuf[MAX_BUF_SIZE];
+
+/* -------------------------- setup to hold socket address info from getaddrinfo -------------------------- */
+    struct addrinfo *addrRes;
+    int yes = 1;
     long i = 0;
 
-    printf("\ngetaddrinfo\n");
 /* -------------------------- returns malloc'd socket addrinfo in final parameter -------------------------- */
     int res = getaddrinfo(NULL, PORT, &hints, &addrRes);
     if(res != 0)
     {
         syslog(LOG_ERR, "getaddrinfo failed, error code %d", res);
         printf("getaddrinfo failed, error code %d", res);
+        freeaddrinfo(addrRes);
         exit(-1);
     }
 
 /* -------------------------- create socket with IPv4 addressing, streaming type, with default options -------------------------- */
-    printf("\nsocket\n");
     socketFD = socket(addrRes->ai_family, addrRes->ai_socktype, addrRes->ai_protocol);
     if(socketFD == -1)
     {
         syslog(LOG_ERR, "socket failed to create new socket fd");
         printf("socket failed to create new socket fd");
+        freeaddrinfo(addrRes);
         exit(-1);
     }
 
 /* -------------------------- use setsockopt to allow for socket address reuse -------------------------- */
-    printf("\nsetsockopt\n");
-   
     if(setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1)
     {
         syslog(LOG_ERR, "setsockopt failed to config address reuse");
@@ -153,20 +155,63 @@ int main(int argc, char *argv[])
 
 
 /* -------------------------- bind created socket ID to generated socket address -------------------------- */
-    printf("\nbind\n");
     res = bind(socketFD, addrRes->ai_addr, addrRes->ai_addrlen);
     if(res != 0)
     {
         syslog(LOG_ERR, "bind failed, see errno for details");
-        printf("bind failed, see errno for details");
+        printf("bind failed, errno = %d", errno);
         close(socketFD);
+        freeaddrinfo(addrRes);
         exit(-1);
     }
     
     /* free stuct, no longer needed after bind step */
     freeaddrinfo(addrRes);
 
-    printf("\nlisten\n");
+    /* reference daemon creation process from https://netzmafia.ee.hm.edu/skripten/unix/linux-daemon-howto.html */
+    if(isDaemon == true)
+    {
+        printf("\nDaemon Mode: %d\n", isDaemon);
+        daemonPid = fork();
+        if(daemonPid == -1)
+        {
+            syslog(LOG_ERR, "fork failed, see errno for details");
+            printf("fork failed, errno = %d", errno);
+            close(socketFD);
+            return -1;
+        }
+        /* terminate parent process */
+        if(daemonPid != 0)
+            exit(0);
+
+        /* allows daemon to access files it creates */
+        umask(0);
+
+        /* create new session for daemon to run in */
+        daemonSid = setsid();
+        if(daemonSid == -1)
+        {
+            syslog(LOG_ERR, "setsid failed, see errno for details");
+            printf("setsid failed, errno = %d", errno);
+            close(socketFD);
+            exit(-1);
+        }
+
+        /* change working directory to root */
+        int dirRes = chdir("/");
+        if(dirRes == -1)
+        {
+            syslog(LOG_ERR, "chdir failed, see errno for details");
+            printf("chdir failed, errno = %d", errno);
+            close(socketFD);
+            exit(-1);
+        }
+        
+        /* close std fd's as daemon cannot access terminal */
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+    }
 /* -------------------------- listen for connections on created socket -------------------------- */
     res = listen(socketFD, BACKLOG);
     if(res != 0)
@@ -177,21 +222,15 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-/* --------------------------  -------------------------- */
-
 /* -------------------------- Loop for accepting connections and receiving packets -------------------------- */
     while(!cleanExit)
     {
     /* accept incoming connection and save client info */
-        printf("\naccept\n");
         clientSize = sizeof(clientAddr);
         res = accept(socketFD, (struct sockaddr *)&clientAddr, &clientSize);
         if(res == -1)
         {
-            // syslog(LOG_ERR, "accept failed, see errno for details");
-            printf("accept failed, see errno for details");
-            // close(socketFD);
-            // exit(-1);
+            syslog(LOG_ERR, "accept failed, see errno for details");
             continue;
         }
     /* save connected client's FD for send/recv later */
@@ -209,7 +248,6 @@ int main(int argc, char *argv[])
         while(!recvDone)
         {
         /* receive packet from connected client */
-            printf("\nrecv\n");
             recvBytes = recv(clientFD, recvBuf, MAX_BUF_SIZE-1, 0);
             if(recvBytes == -1)
             {
@@ -240,9 +278,7 @@ int main(int argc, char *argv[])
         totalBytes += 1;
 
     /* setup file to write results into */
-        printf("\nfile setup\n");
         fptr = fopen(OUTPUT_FILE, "a+");
-        printf("write to file\n");
         fputs(buf, fptr);
 
     /* clear buf for file readback */
@@ -258,10 +294,10 @@ int main(int argc, char *argv[])
             }
         }
 
-        printf("\ncleanup and close\n");
         syslog(LOG_DEBUG, "closing connection from %s", clientIP);
         fclose(fptr);
-        close(socketFD);
+        close(clientFD);
+        printf("\nClosed connection from %s\n", clientIP);
     }
 
     while(cleanExit)
@@ -271,6 +307,7 @@ int main(int argc, char *argv[])
         close(socketFD);
         close(clientFD);
         remove(OUTPUT_FILE);
+        printf("\nCleanup Complete.\n");
         exit(0);
     }
 }

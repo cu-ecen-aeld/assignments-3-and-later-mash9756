@@ -95,6 +95,7 @@ int main(int argc, char *argv[])
     openlog(NULL, 0, LOG_USER);
 
 /* -------------------------- setup addrinfo for socket -------------------------- */
+    printf("\ngetaddrinfo setup\n");
     struct addrinfo hints;
     /* clear struct memory space */
     memset(&hints, 0, sizeof(hints));
@@ -104,6 +105,7 @@ int main(int argc, char *argv[])
     hints.ai_socktype  = SOCK_STREAM;
 
 /* -------------------------- client info for connections -------------------------- */
+    printf("\nclient setup\n");
     struct sockaddr_storage clientAddr;
     /* size stored for accept call */
     socklen_t clientSize;
@@ -120,10 +122,12 @@ int main(int argc, char *argv[])
     char recvBuf[MAX_BUF_SIZE];
 
 /* -------------------------- setup to hold socket address info from getaddrinfo -------------------------- */
+    printf("\nsocket address setup\n");
     struct addrinfo *addrRes;
     int yes = 1;
     long i = 0;
 
+    printf("\ngetaddrinfo\n");
 /* -------------------------- returns malloc'd socket addrinfo in final parameter -------------------------- */
     int res = getaddrinfo(NULL, PORT, &hints, &addrRes);
     if(res != 0)
@@ -135,6 +139,7 @@ int main(int argc, char *argv[])
     }
 
 /* -------------------------- create socket with IPv4 addressing, streaming type, with default options -------------------------- */
+    printf("\nsocket\n");
     socketFD = socket(addrRes->ai_family, addrRes->ai_socktype, addrRes->ai_protocol);
     if(socketFD == -1)
     {
@@ -145,6 +150,7 @@ int main(int argc, char *argv[])
     }
 
 /* -------------------------- use setsockopt to allow for socket address reuse -------------------------- */
+    printf("\nsetsockopt\n");
     if(setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1)
     {
         syslog(LOG_ERR, "setsockopt failed to config address reuse");
@@ -155,6 +161,7 @@ int main(int argc, char *argv[])
 
 
 /* -------------------------- bind created socket ID to generated socket address -------------------------- */
+    printf("\nbind\n");
     res = bind(socketFD, addrRes->ai_addr, addrRes->ai_addrlen);
     if(res != 0)
     {
@@ -171,7 +178,6 @@ int main(int argc, char *argv[])
     /* reference daemon creation process from https://netzmafia.ee.hm.edu/skripten/unix/linux-daemon-howto.html */
     if(isDaemon == true)
     {
-        printf("\nDaemon Mode: %d\n", isDaemon);
         daemonPid = fork();
         if(daemonPid == -1)
         {
@@ -212,6 +218,8 @@ int main(int argc, char *argv[])
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
     }
+
+    printf("\nlisten\n");
 /* -------------------------- listen for connections on created socket -------------------------- */
     res = listen(socketFD, BACKLOG);
     if(res != 0)
@@ -226,6 +234,7 @@ int main(int argc, char *argv[])
     while(!cleanExit)
     {
     /* accept incoming connection and save client info */
+        printf("\naccept\n");
         clientSize = sizeof(clientAddr);
         res = accept(socketFD, (struct sockaddr *)&clientAddr, &clientSize);
         if(res == -1)
@@ -248,6 +257,7 @@ int main(int argc, char *argv[])
         while(!recvDone)
         {
         /* receive packet from connected client */
+            printf("\nrecv\n");
             recvBytes = recv(clientFD, recvBuf, MAX_BUF_SIZE-1, 0);
             if(recvBytes == -1)
             {
@@ -278,7 +288,9 @@ int main(int argc, char *argv[])
         totalBytes += 1;
 
     /* setup file to write results into */
+        printf("\nfile setup\n");
         fptr = fopen(OUTPUT_FILE, "a+");
+        printf("write to file\n");
         fputs(buf, fptr);
 
     /* clear buf for file readback */
@@ -294,6 +306,7 @@ int main(int argc, char *argv[])
             }
         }
 
+        printf("\ncleanup and close");
         syslog(LOG_DEBUG, "closing connection from %s", clientIP);
         fclose(fptr);
         close(clientFD);

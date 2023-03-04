@@ -7,4 +7,9 @@ aesd-build
 .vscode/
 test.sh.log
 aesdsocket
+<<<<<<< HEAD
 aarch64-aesdsocket
+=======
+server/aesdsocket
+server/valgrind-out.txt
+>>>>>>> assignments-base/assignment6

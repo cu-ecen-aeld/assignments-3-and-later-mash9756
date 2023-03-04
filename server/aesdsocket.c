@@ -31,12 +31,21 @@
 #include <linux/fs.h>
 #include <fcntl.h>
 
+#include <pthread.h>
+#include "queue.h"
+
 /* port string for socket setup */
 #define PORT            ("9000")
 /* arbitrary max allows pending connections allowed before socket refuses */
 #define BACKLOG         (10)
 /* max receive buffer size in bytes */
 #define MAX_BUF_SIZE    (65535)
+/* additional byte for null-ternminator */
+#define NULL_TERM_BYTE  (1)
+/* timestamp interval, every 10s */
+#define TIMESTAMP_INTV  (10)
+/* max length of timestamp string */
+#define TS_STR_LEN      (64)
 /* Output file path definition */
 #define OUTPUT_FILE     ("/var/tmp/aesdsocketdata")
 
@@ -62,6 +71,14 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+/** TODO
+ *  @name
+ *  @brief
+ * 
+ *  @param
+ * 
+ *  @return
+*/
 void signal_handler(int sig_num)
 {
     if(sig_num == SIGINT || sig_num == SIGTERM)
@@ -78,11 +95,262 @@ void signal_handler(int sig_num)
     }
 }
 
+/** TODO
+ *  @name
+ *  @brief
+ * 
+ *  @param
+ * 
+ *  @return
+*/
+struct thread_data
+{
+    /* thread ID */
+    pthread_t thread_ID;
+
+    /* mutex for thread */
+    pthread_mutex_t *mutex;
+
+    /* thread connection FD */
+    int clientFD;
+
+    /* thread completion status */
+    bool thread_complete_success;
+
+    /* linked list */
+    SLIST_ENTRY(thread_data) entries;
+};
+
+/**
+ *  @name
+ *  @brief  process received packet, write to log file
+ *          read back from file, send back to client
+ * 
+ * 
+*/
+static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex)
+{
+    if(pkt == NULL)
+    {
+        syslog(LOG_ERR, "Passed Packet returned NULL pointer");
+        return -1;
+    }
+
+    int res      = 0;
+    long fileLen = 0;
+    FILE *fptr   = NULL;
+
+/* setup file to write results into */
+    printf("\nfile setup\n");
+/* open file for appended writes and reading, also creates file if it doesnt exist */
+    fptr = fopen(OUTPUT_FILE, "a+");
+    printf("write to file\n");
+/* lock mutex for file writing */
+    pthread_mutex_lock(mutex);
+    fputs(*pkt, fptr);
+    pthread_mutex_unlock(mutex);
+
+/* seek to end of file, read back length, then return to start */
+    fseek(fptr, 0, SEEK_END);
+    fileLen = ftell(fptr);
+    fseek(fptr, 0, SEEK_SET);
+/* extend pkt for full file length and clear for readback */
+    *pkt = (char *)realloc(*pkt, fileLen);
+    memset(*pkt, 0, fileLen);
+
+/* readback and send contents of file back */
+    while(fgets(*pkt, fileLen, fptr) != NULL)
+    {
+        printf("\nsending read back to client\n");
+        res = send(clientFD, *pkt, strlen(*pkt), 0);
+        if(res == -1)
+        {
+            printf("\nsend failure\n");
+            if(errno == EINTR)
+                continue;
+
+            syslog(LOG_ERR, "send failed, see errno for details");
+        }
+    }
+    printf("\nsend complete!\n");
+    if(pkt != NULL)
+    {
+        printf("\nfreeing pkt\n");
+        free(*pkt);
+        *pkt = NULL;
+    }
+    printf("\nclosing file\n");
+    fclose(fptr);
+    if(res == -1)
+        return -1;
+    else
+        return 0;
+}
+
+/**
+ *  @name   timer_func
+ *  @brief  timestamp thread function, writes current date and time
+ *          to output file evert 10s
+ * 
+ *  @param  thread_param    thread parameters
+ * 
+ *  @return VOID
+*/
+void *timer_func(void *thread_param)
+{
+    if(thread_param == NULL)
+        return NULL;
+
+    int res = 0;
+
+    struct thread_data *timerThread = thread_param;
+
+    printf("\nEntered Timer Thread %ld", timerThread->thread_ID);
+
+    FILE *fptr = NULL;
+
+    time_t rawTime;
+    struct tm *localTime;
+    struct timespec ts;
+    char tsStr[TS_STR_LEN];
+
+    while(!cleanExit)
+    {
+        res = clock_gettime(CLOCK_MONOTONIC, &ts);
+        if(res == -1)
+        {
+            /* TODO: gettime failed */
+            syslog(LOG_ERR, "gettime failed");
+            break;
+        }
+
+        ts.tv_sec += TIMESTAMP_INTV;
+        res = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL);
+        if(res != 0)
+        {
+            /* TODO: clock_nanosleep failed */
+            syslog(LOG_ERR, "clock_nanosleep failed");
+            break;
+        }
+        /* get raw time since epoch */
+        rawTime     = time(NULL);
+        /* convert raw time to local time */
+        localTime   = localtime(&rawTime);
+        /* write formatted timestamp into tsStr, %c is full date and time */
+        strftime(tsStr, sizeof(tsStr), "timestamp: %c\n", localTime);
+
+
+        fptr = fopen(OUTPUT_FILE, "a+");
+        printf("write timestamp to file\n");
+        /* lock mutex for file writing */
+        pthread_mutex_lock(timerThread->mutex);
+        fputs(tsStr, fptr);
+        pthread_mutex_unlock(timerThread->mutex);
+
+        fclose(fptr);
+    }
+    
+    timerThread->thread_complete_success = 1;
+    return NULL;
+}
+
+/** TODO
+ *  @name   client_func
+ *  @brief  receives packets from client and passes to process
+ * 
+ *  @param  thread_param    thread parameters
+ * 
+ *  @return VOID
+*/
+void *client_func(void *thread_param)
+{
+    if(thread_param == NULL)
+        return NULL;
+        
+
+/* -------------------------- recv setup -------------------------- */
+    long recvLen    = 0;
+    long totalLen   = 0;
+    long currLen    = 0;
+    int res         = 0;
+
+    char recvBuf[MAX_BUF_SIZE];
+    char *recvPkt = NULL;
+    
+    struct thread_data *clientData = thread_param;
+
+    printf("\nEntered Client Thread %ld", clientData->thread_ID);
+
+/* receive packet from connected client */
+    printf("\nrecv\n");
+    while((recvLen = recv(clientData->clientFD, recvBuf, MAX_BUF_SIZE, 0)))
+    {
+        if(recvLen == -1)
+        {
+            if(errno == EINTR)
+                continue;
+            else
+            {
+                syslog(LOG_ERR, "recv failed, see errno for details");
+                printf("\ncleanup and close client thread");
+                close(clientData->clientFD);
+                clientData->clientFD = -1;
+                clientData->thread_complete_success = 1;
+            }
+        }
+
+        if(totalLen - currLen < recvLen)
+        {
+            /* add extra byte for null-term string */
+            totalLen += (recvLen + NULL_TERM_BYTE);
+            /* realloc for additional received bytes (extend) */
+            recvPkt = (char *) realloc(recvPkt, totalLen);
+            if(recvPkt == NULL)
+            {
+                syslog(LOG_ERR, "Failed to realloc memory for write buffer");
+                printf("\nrealloc for recvPkt failed\n");
+                printf("\ncleanup and close client thread");
+                close(clientData->clientFD);
+                clientData->clientFD = -1;
+                clientData->thread_complete_success = 1;
+            }
+            /* clear newly allocated extended memory */
+            printf("\nclearing realloced memory\n");
+            memset(recvPkt + currLen , 0, totalLen - currLen);
+        }
+
+        /* load recv buffer data into second buffer for file write */
+        memcpy(recvPkt + currLen, recvBuf, recvLen);
+        currLen += recvLen;
+
+        printf("\nprocessing recvPkt\n");
+        res = process_recv_pkt(&recvPkt, clientData->clientFD, clientData->mutex);
+        if(res == -1)
+            break;
+        printf("\nrecvPkt processed.\n");
+    }
+
+    /* free if packet processing failed */
+    if(recvPkt != NULL)
+    {
+        printf("\nfreeing recvPkt\n");
+        free(recvPkt);
+    }
+    
+    printf("\ncleanup and close client thread");
+    close(clientData->clientFD);
+    clientData->clientFD = -1;
+    clientData->thread_complete_success = 1;
+    return NULL;
+}
+
 int main(int argc, char *argv[])
 {
     printf("\n\nAESD Socket\n\n");
 
-    FILE *fptr;
+    struct thread_data *threadSetup = NULL;
+    struct thread_data *temp = NULL;
+    pthread_mutex_t mutex;
 
 /* -------------------------- setup signal handlers -------------------------- */
     signal(SIGINT, signal_handler);
@@ -100,6 +368,10 @@ int main(int argc, char *argv[])
 /* -------------------------- open log for debug and error messages -------------------------- */
     openlog(NULL, 0, LOG_USER);
 
+/* -------------------------- setup linked list -------------------------- */
+    SLIST_HEAD(head_s, thread_data) head;
+    SLIST_INIT(&head);
+
 /* -------------------------- setup addrinfo for socket -------------------------- */
     printf("\ngetaddrinfo setup\n");
     struct addrinfo hints;
@@ -116,22 +388,12 @@ int main(int argc, char *argv[])
     /* size stored for accept call */
     socklen_t clientSize;
     int clientFD = 0;
-    /* received data buffer */
-    char buf[MAX_BUF_SIZE];
-    long recvIndex = 0;
     char clientIP[INET6_ADDRSTRLEN];
-
-/* -------------------------- recv setup -------------------------- */
-    bool recvDone   = false;
-    long recvBytes   = 0;
-    long totalBytes  = 0;
-    char recvBuf[MAX_BUF_SIZE];
 
 /* -------------------------- setup to hold socket address info from getaddrinfo -------------------------- */
     printf("\nsocket address setup\n");
     struct addrinfo *addrRes;
     int yes = 1;
-    long i = 0;
 
     printf("\ngetaddrinfo\n");
 /* -------------------------- returns malloc'd socket addrinfo in final parameter -------------------------- */
@@ -236,6 +498,30 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
+/* create timer thread for timestamping output file */
+    threadSetup = (struct thread_data *) malloc(sizeof(struct thread_data));
+    if(threadSetup == NULL)
+    {
+        /* TODO: failed to allocate memory */
+        shutdown(socketFD, SHUT_RDWR);
+        close(socketFD);
+        exit(-1);
+    }
+    threadSetup->mutex = &mutex;
+    threadSetup->thread_complete_success = 0;
+    res = pthread_create(&threadSetup->thread_ID, NULL, timer_func, (void *)threadSetup);
+    if(res != 0)
+    {
+        /* TODO: pthread create failed to start thread */
+        printf("\nfreeing threadSetup on pthread_create failure (timer)\n");
+        free(threadSetup);
+        shutdown(socketFD, SHUT_RDWR);
+        close(socketFD);
+        exit(-1);
+    }
+/* add thread to linked list after creation */
+    SLIST_INSERT_HEAD(&head, threadSetup, entries);
+
 /* -------------------------- Loop for accepting connections and receiving packets -------------------------- */
     while(!cleanExit)
     {
@@ -245,10 +531,11 @@ int main(int argc, char *argv[])
         res = accept(socketFD, (struct sockaddr *)&clientAddr, &clientSize);
         if(res == -1)
         {
-            if(errno == EINTR)
-                continue;
-            syslog(LOG_ERR, "accept failed, see errno for details");
-            continue;
+            //(errno == EINTR)
+                 //continue;
+            //syslog(LOG_ERR, "accept failed, see errno for details");
+            printf("\naccept failed, cleaning up threads");
+            goto cleanup_threads;
         }
     /* save connected client's FD for send/recv later */
         clientFD = res;
@@ -257,78 +544,71 @@ int main(int argc, char *argv[])
         syslog(LOG_DEBUG, "Accepted connection from %s", clientIP);
         printf("\nAccepted connection from %s", clientIP);
 
-    /* clear last recv data */
-        recvDone    = false;
-        totalBytes  = 0;
-        recvIndex   = 0;
 
-        while(!recvDone)
+/************ spawn thread here ***************/
+
+        threadSetup = (struct thread_data *) malloc(sizeof(struct thread_data));
+        if(threadSetup == NULL)
         {
-        /* receive packet from connected client */
-            printf("\nrecv\n");
-            recvBytes = recv(clientFD, recvBuf, MAX_BUF_SIZE-1, 0);
-            if(recvBytes == -1)
-            {
-                if(errno == EINTR)
-                    continue;
-                else
-                {
-                    syslog(LOG_ERR, "recv failed, see errno for details");
-                    syslog(LOG_DEBUG, "closing connection from %s", clientIP);
-                    close(clientFD);
-                    exit(-1);
-                }
-                
-            }
-
-        /* track total bytes received */
-            totalBytes += recvBytes;
-        /* load recv buffer data into second buffer for file write */
-            for(i = 0; i < recvBytes; i++)
-                buf[recvIndex + i] = recvBuf[i];
+            /* TODO: failed to allocate memory */
+            shutdown(socketFD, SHUT_RDWR);
+            close(socketFD);
+            exit(-1);
+        }
         
-        /* track buffer index from previous write */
-            recvIndex += recvBytes;
-        /* check for end of packet, \n terminated */
-            if(recvBuf[recvIndex - 1] == '\n')
-                recvDone = true;
+        threadSetup->clientFD   = clientFD;
+        threadSetup->mutex      = &mutex;
+        threadSetup->thread_complete_success = 0;
+        res = pthread_create(&threadSetup->thread_ID, NULL, client_func, (void *)threadSetup);
+        if(res != 0)
+        {
+            /* TODO: pthread create failed to start thread */
+            printf("\nfreeing threadSetup on pthread_create failure\n");
+            free(threadSetup);
+            shutdown(socketFD, SHUT_RDWR);
+            close(socketFD);
+            exit(-1);
         }
 
-        printf("%ld bytes received from %s", recvBytes, clientIP);
-        syslog(LOG_DEBUG, "%ld bytes received from %s", recvBytes, clientIP);
+        /* add thread to linked list after creation */
+        SLIST_INSERT_HEAD(&head, threadSetup, entries);
+        printf("\nadded thread to linked list\n");
 
-    /* null terminate buffer to write to file as string */
-        buf[totalBytes] = '\0';
-        totalBytes += 1;
-
-    /* setup file to write results into */
-        printf("\nfile setup\n");
-        fptr = fopen(OUTPUT_FILE, "a+");
-        printf("write to file\n");
-        fputs(buf, fptr);
-
-    /* clear buf for file readback */
-        memset(buf, 0, MAX_BUF_SIZE * sizeof(buf[0]));
-    /* readback and send contents of file back */
-        fseek(fptr, 0, SEEK_SET);
-        while(fgets(buf, MAX_BUF_SIZE, fptr) != NULL)
+cleanup_threads:
+        /* remove all thread from linked-list, if it is completed */
+        threadSetup = NULL;
+        SLIST_FOREACH_SAFE(threadSetup, &head, entries, temp) 
         {
-            res = send(clientFD, buf, strlen(buf), 0);
-            if(res == -1)
+            if (threadSetup->thread_complete_success) 
             {
-                if(errno == EINTR)
-                    continue;
-                syslog(LOG_ERR, "send failed, see errno for details");
+                pthread_join(threadSetup->thread_ID, NULL);
+                SLIST_REMOVE(&head, threadSetup, thread_data, entries);
+                printf("\nfreeing threadSetup in cleanup_threads\n");
+                free(threadSetup);
+                printf("\tfree complete\n");
             }
         }
-
-        printf("\ncleanup and close");
-        syslog(LOG_DEBUG, "closing connection from %s", clientIP);
-        fclose(fptr);
-        close(clientFD);
-        printf("\nClosed connection from %s\n", clientIP);
     }
 
+    printf("\nClean exit interrupt received, closing...\n");
+    syslog(LOG_DEBUG, "closing connection from %s", clientIP);
+    close(socketFD);
+    close(clientFD);
+    remove(OUTPUT_FILE);
+
+    /* cleanup linked list */
+    threadSetup = NULL;
+    while(!SLIST_EMPTY(&head))
+    {
+        threadSetup = SLIST_FIRST(&head);
+        SLIST_REMOVE_HEAD(&head, entries);
+        printf("\nfreeing threadSetup in cleanExit\n");
+        free(threadSetup);
+    }
+    SLIST_INIT(&head);
+
+    printf("\nCleanup Complete.\n");
+/*
     while(cleanExit)
     {
         printf("\nClean exit interrupt received, closing...\n");
@@ -336,7 +616,20 @@ int main(int argc, char *argv[])
         close(socketFD);
         close(clientFD);
         remove(OUTPUT_FILE);
+        threadSetup = NULL;
+        while(!SLIST_EMPTY(&head))
+        {
+            threadSetup = SLIST_FIRST(&head);
+            SLIST_REMOVE_HEAD(&head, entries);
+            printf("\nfreeing threadSetup in cleanExit\n");
+            free(threadSetup);
+        }
+        SLIST_INIT(&head);
+
         printf("\nCleanup Complete.\n");
         exit(0);
     }
+*/
+
+    return res;
 }

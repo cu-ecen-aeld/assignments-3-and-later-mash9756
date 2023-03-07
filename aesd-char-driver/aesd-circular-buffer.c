@@ -69,8 +69,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 
     rawOffs = startPos + char_offset;
 
-    printf("\nrawOffs = %ld", rawOffs);
-    printf("\nout_offs: %d", buffer->out_offs);
+
 
 /** 
  * 
@@ -80,6 +79,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     for(int i = 0; i <= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED-1; i++)
         totalBytes += buffer->entry[i].size; 
 
+    printf("\nTotal Bytes: %ld", totalBytes);
 
 /* we dont have that many bytes in the buffer, return NULL */
     if(char_offset >= totalBytes)
@@ -87,8 +87,16 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
         printf("\noffset greater than total bytes, NULL\n");
         return NULL;
     }
+    else if(char_offset >= totalBytes - startPos)
+    {
+        int fromStartPos = char_offset - totalBytes;
+        rawOffs = fromStartPos + startPos;
+    }
 
-    printf("\nTotal Bytes: %ld", totalBytes);
+    printf("\nrawOffs = %ld", rawOffs);
+    printf("\nout_offs: %d", buffer->out_offs);
+
+    if(buffer->out_offs > 0 && rawOffs > totalBytes)
 
 /* loop until we find the byte offset we want */
 
@@ -97,17 +105,16 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     {
         //printf("\nEntry: %d, String: %s, size %ld", entryCnt, buffer->entry[entryCnt].buffptr, buffer->entry[entryCnt].size);
         /* move through each entry until we find what entry the byte we want is in */
-        if(((buffer->entry[entryCnt].size-1) + currPos) < rawOffs)
+        if(((buffer->entry[entryCnt].size) + currPos) <= rawOffs)
         {
-            currPos += buffer->entry[entryCnt].size;
+            currPos += (buffer->entry[entryCnt].size);
             //printf("\ncurrPos = %ld", currPos);
             entryCnt++;
         }
         else
         {
             /* determine desired position offset from the entry that contains it */
-            //printf("\n\nDO I EVER GET HERE???\n\n");
-            posDif = char_offset - currPos;
+            posDif = rawOffs - currPos;
             printf("\nposDif = %ld", posDif);
             currPos = rawOffs;
         }

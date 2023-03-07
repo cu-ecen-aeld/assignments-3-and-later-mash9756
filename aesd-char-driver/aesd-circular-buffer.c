@@ -45,14 +45,20 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
  * loop through all entries and sum total bytes 
  * 
  **/
-    while(buffer->entry[entryCnt].buffptr != NULL)
-        totalBytes += buffer->entry[entryCnt++].size;
+    for(int i = 0; i <= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED-1; i++)
+    {
+        totalBytes += buffer->entry[i].size;
+    }    
 
     printf("\nTotal Bytes: %ld", totalBytes);
 
 /* we dont have that many bytes in the buffer, return NULL */
-    if(char_offset > totalBytes)
+    if(char_offset >= totalBytes)
+    {
+        printf("\noffset greater than total bytes, NULL");
         return NULL;
+    }
+        
 
 /* loop until we find the byte offset we want */
     entryCnt = 0;
@@ -75,10 +81,9 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     }
 
     /* save a pointer to the desired character */
-    entry_offset_byte_rtn = &posDif;
+    *entry_offset_byte_rtn = posDif;
     printf("\nchar_offset = %ld, Entry: %d", char_offset, entryCnt);
     printf("\nentry_offset_byte_rnt: %ld, posDif = %ld\n\n", *entry_offset_byte_rtn, posDif);
-    buffer->entry[entryCnt].buffptr += posDif;
 
     return (&(buffer->entry[entryCnt]));
 }

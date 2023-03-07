@@ -50,18 +50,20 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
         totalBytes += buffer->entry[i].size;
     }    
 
-    printf("\nTotal Bytes: %ld", totalBytes);
 
 /* we dont have that many bytes in the buffer, return NULL */
     if(char_offset >= totalBytes)
     {
-        printf("\noffset greater than total bytes, NULL");
+        printf("\noffset greater than total bytes, NULL\n");
         return NULL;
     }
-        
+
+    printf("\nTotal Bytes: %ld", totalBytes);
+    printf("\nout_offs: %d", buffer->out_offs);
+    printf("\nchar_offset: %ld", char_offset);
 
 /* loop until we find the byte offset we want */
-    entryCnt = 0;
+    entryCnt = 0; //buffer->out_offs;
     while(currPos != char_offset)
     {
         printf("\nEntry: %d, String: %s, size %ld", entryCnt, buffer->entry[entryCnt].buffptr, buffer->entry[entryCnt].size);
@@ -70,7 +72,6 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
         {
             currPos += buffer->entry[entryCnt].size;
             entryCnt++;
-            
         }
         else
         {
@@ -82,7 +83,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 
     /* save a pointer to the desired character */
     *entry_offset_byte_rtn = posDif;
-    printf("\nchar_offset = %ld, Entry: %d", char_offset, entryCnt);
+    //printf("\nchar_offset = %ld, Entry: %d", char_offset, entryCnt);
     printf("\nentry_offset_byte_rnt: %ld, posDif = %ld\n\n", *entry_offset_byte_rtn, posDif);
 
     return (&(buffer->entry[entryCnt]));
@@ -101,27 +102,33 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     if(buffer == NULL || add_entry == NULL)
     {
         /* do nothing, break*/
-        printf("\nbuffer or add_entry was NULL");
+        //printf("\nbuffer or add_entry was NULL");
     }
     else
     {
-    /* wrap input counter if current offset is at the end of the array */
-        if(buffer->in_offs == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED + 1)
-        {    
-            printf("\nin_offs = %d, wrapping back to 0", buffer->in_offs);
-            buffer->in_offs = 0;
-        }
-
     /* add entry to entry array at the current input offset */
-        printf("\nwriting entry %d", buffer->in_offs);
+        printf("writing entry %d\n", buffer->in_offs);
         buffer->entry[buffer->in_offs] = *add_entry;
+        if(buffer->in_offs == 0)
+        {
+            printf("\nentry %d: %s", buffer->in_offs, buffer->entry[buffer->in_offs].buffptr);
+            printf("\nentry %d: %s", buffer->in_offs+1, buffer->entry[buffer->in_offs+1].buffptr);
+            printf("\nentry %d: %s", buffer->in_offs+2, buffer->entry[buffer->in_offs+2].buffptr);
+        }
     /* increment input offset after new entry added */
         buffer->in_offs++;
+
+    /* wrap input counter if current offset is at the end of the array */
+        if(buffer->in_offs == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+        {    
+            printf("\nin_offs = %d, wrapping back to 0\n", buffer->in_offs);
+            buffer->in_offs = 0;
+        }
 
     /* if in and out are equal after a write, then the buffer is full */
         if(buffer->out_offs == buffer->in_offs)
         {
-            printf("\nBuffer Full");
+            printf("\n\nBuffer Full\n\n");
             buffer->full = true;
         }
 
@@ -129,11 +136,15 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
      *  if the buffer was full and we did another write, we overwrote some data 
      *  which means we need to increment the output offset
      **/
+    
         if(buffer->in_offs > buffer->out_offs && buffer->full == true)
         {
-            printf("\nmoving out_offs, overwrite occurred");
+            //printf("\nout_offs = %d", buffer->out_offs);
+            //printf("\nmoving out_offs, overwrite occurred");
             buffer->out_offs++;
+            //printf("\nout_offs = %d\n", buffer->out_offs);
         }    
+        
     }
 
 }

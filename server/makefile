@@ -1,21 +1,19 @@
 
-CC = $(CROSS_COMPILE)gcc
-FLAGS=-Wall -Werror
-LIBS=-pthread
+CC ?= $(CROSS_COMPILE)gcc
+CFLAGS ?= -g -Wall -Werror
+LDFLAGS ?= -lpthread -lrt
+TARGET ?= aarch64-aesdsocket
+SOURCES = aesdsocket.c
 
 all: default
 
-default: aesdsocket_o
-	gcc $(LIBS) $(FLAGS) aesdsocket.o -o aesdsocket
-
-aesdsocket_o:
-	gcc $(LIBS) $(FLAGS) -c aesdsocket.c -o aesdsocket.o
+default: CROSS_COMPILE
 
 CROSS_COMPILE: CROSS_COMPILE_o
-	$(CC) $(FLAGS) aarch64-aesdsocket.o -o aarch64-aesdsocket
+	$(CC) $(CFLAGS) $(TARGET).o -o $(TARGET) $(LDFLAGS)
 
 CROSS_COMPILE_o:
-	$(CC) $(FLAGS) -c aesdsocket.c -o aarch64-aesdsocket.o
+	$(CC) $(CFLAGS) -c $(SOURCES) -o $(TARGET).o $(LDFLAGS)
 
 clean:
 	rm -f *.o aesdsocket aarch64-aesdsocket

@@ -126,8 +126,10 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 * new start location.
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
+*
+*   @return NULL, or if an exisiting entry was replaced, returns val of buffptr for the overwritten entry to be freed
 */
-void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+const char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
 /* error out if either buffer or entry are invalid */
     if(buffer == NULL || add_entry == NULL)
@@ -137,13 +139,18 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     }
     else
     {
+        char *overwrite = NULL;
     /* if buffer is full, we need to update out_offs as we are about to overwrite */
         if(buffer->full == true)
         {
             printf("\nout_offs = %d", buffer->out_offs);
             printf("\nmoving out_offs, overwrite occurred");
+        /* store buffptr of data to be overwritten, return so it can be freed */
+            overwrite = buffer->entry[buffer->out_offs].buffptr;
             buffer->out_offs++;
             printf("\nout_offs = %d\n", buffer->out_offs);
+            
+            return overwrite;
         }
 
     /* add entry to entry array at the current input offset */
@@ -167,6 +174,7 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
             buffer->full = true;
         }
     }
+    return NULL;
 }
 
 /**

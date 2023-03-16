@@ -21,7 +21,7 @@
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
-MODULE_AUTHOR("Your Name Here"); /** TODO: fill in your name **/
+MODULE_AUTHOR("Mark Sherman"); /** TODO: fill in your name **/
 MODULE_LICENSE("Dual BSD/GPL");
 
 struct aesd_dev aesd_device;
@@ -31,6 +31,9 @@ int aesd_open(struct inode *inode, struct file *filp)
     PDEBUG("open");
     /**
      * TODO: handle open
+     * 
+     * filp = file pointer, set filp->private_data with aesd_dev device struct
+     * use inode->i_cdev with container_of to locate within aesd_dev structure
      */
     return 0;
 }
@@ -51,6 +54,15 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
     /**
      * TODO: handle read
+     * 
+     * use filp->private_data to get aesd_dev
+     * buff - buffer to fill with data from user space
+     *      use copy_to_user
+     * count - max number of writes to buffer
+     *      may want or need to write less than this value
+     * f_pos - pointer to read offset
+     *      specific byte in linear content, referenced by char_offset
+     *      update to next offset to be read based on number of bytes returned
      */
     return retval;
 }
@@ -104,6 +116,8 @@ int aesd_init_module(void)
 
     /**
      * TODO: initialize the AESD specific portion of the device
+     * locking primitive
+     * circular buffer?
      */
 
     result = aesd_setup_cdev(&aesd_device);
@@ -123,6 +137,7 @@ void aesd_cleanup_module(void)
 
     /**
      * TODO: cleanup AESD specific poritions here as necessary
+     * balance initialized stuff
      */
 
     unregister_chrdev_region(devno, 1);

@@ -35,6 +35,13 @@ int aesd_open(struct inode *inode, struct file *filp)
      * filp = file pointer, set filp->private_data with aesd_dev device struct
      * use inode->i_cdev with container_of to locate within aesd_dev structure
      */
+
+    struct aesd_dev *dev;
+    
+    dev = container_of(inode->i_cdev, struct aesd_dev, cdev);
+    filp->private_data = dev;
+    filp->f_pos = 0;            /* init read position to 0 */
+
     return 0;
 }
 
@@ -43,7 +50,12 @@ int aesd_release(struct inode *inode, struct file *filp)
     PDEBUG("release");
     /**
      * TODO: handle release
+     * 
+     * Is this right???
+     * Going off W6 Device Driver File Ops, slide 14
+     *  "deallocate anything open allocated in filp->private_data"
      */
+    kfree(filp->private_data);
     return 0;
 }
 
@@ -63,20 +75,84 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
      * f_pos - pointer to read offset
      *      specific byte in linear content, referenced by char_offset
      *      update to next offset to be read based on number of bytes returned
+     * 
+     * return == count, requested number of bytes was transferred
+     * 0 < return < count, only portion of bytes transferred
+     * return == 0, end of file, no data read into buf
+     * return < 0, error occurred
      */
+
+
+
+
     return retval;
 }
 
 ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
-    ssize_t retval = -ENOMEM;
-    PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
     /**
      * TODO: handle write
+     * 
+     * all write appends to command being written until newline
+     * write to the command buffer when newline is received
+     * 
+     * return == count, success
+     * 0 < return < count, partial write, retry command
+     * return == 0, nothing written, retry command
+     * return < 0, error occurred
+     * 
+     * 
      */
+    struct aesd_dev *dev = filp->private_data;  /* get pointer to our char device                       */
+    struct aesd_buffer_entry *write;            /* entry to add to buffer, will populate with command   */
+    uint8_t res = 0;                            /* hold result of various calls for error checking      */
+    ssize_t retval = -ENOMEM;
+    PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
+
+/* obtain mutex */
+    res = mutex_lock_interruptible(&dev->mutex);
+    if(res != 0)
+        goto exit;
+        
+
+/* allocate memory for entry */
+    write = kmalloc(sizeof(struct aesd_buffer_entry), GFP_KERNEL);
+    if(write == NULL)
+        goto exit;
+        
+/* intialize allocated entry */
+    memset(write, 0, sizeof(struct aesd_buffer_entry));
+
+/* allocate entry->buffptr memory based on number of bytes to write */
+    write->buffptr = kmalloc((sizeof(char) * count), GFP_KERNEL);
+    if(write->buffptr == NULL)
+    {
+        kfree(write);
+        goto exit;
+    }    
+
+/* initialize allocated write buffer */
+    memset(write->buffptr, 0, (sizeof(char) * count));
+
+/* copy data from user space */
+    retval = copy_from_user(write->buffptr, buf, count);
+    if(retval < 0)
+    {
+        kfree(write);
+        kfree(write->buffptr);
+        goto exit;
+    }
+
+    aesd_circular_buffer_add_entry(&dev->buffer, write);
+
+
+exit:
+/* release mutex */
+    mutex_unlock(&dev->mutex);
     return retval;
 }
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
     .read =     aesd_read,
@@ -117,8 +193,10 @@ int aesd_init_module(void)
     /**
      * TODO: initialize the AESD specific portion of the device
      * locking primitive
-     * circular buffer?
+     * circular buffer
      */
+    mutex_init(&aesd_device.mutex);
+    aesd_circular_buffer_init(&aesd_device);
 
     result = aesd_setup_cdev(&aesd_device);
 
@@ -139,6 +217,7 @@ void aesd_cleanup_module(void)
      * TODO: cleanup AESD specific poritions here as necessary
      * balance initialized stuff
      */
+
 
     unregister_chrdev_region(devno, 1);
 }

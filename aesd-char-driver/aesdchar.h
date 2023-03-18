@@ -10,8 +10,7 @@
 
 #include "aesd-circular-buffer.h"
 
-
-#define AESD_DEBUG 1 //Remove comment on this line to enable debug
+#define AESD_DEBUG 1
 
 #undef PDEBUG             /* undef it, just in case */
 #ifdef AESD_DEBUG
@@ -31,9 +30,10 @@ struct aesd_dev
     /**
      * TODO: Add structure(s) and locks needed to complete assignment requirements
      */
-    struct aesd_circular_buffer buffer; /* Circular buffer structure       */
-    struct mutex mutex;                 /* locking primitive               */
-    struct cdev cdev;                   /* Char device structure           */
+    struct aesd_circular_buffer buffer;                /* Circular buffer structure       */
+    struct aesd_buffer_entry working_entry;            /* Working CB entry for writes     */
+    struct mutex mutex;                                /* locking primitive               */
+    struct cdev cdev;                                  /* Char device structure           */
     
 };
 

@@ -16,8 +16,9 @@
 #include <linux/printk.h>
 #include <linux/types.h>
 #include <linux/cdev.h>
+#include <linux/fs.h>   // file_operations
 #include <linux/slab.h>
-#include <linux/fs.h> // file_operations
+#include <linux/string.h>
 #include "aesdchar.h"
 
 int aesd_major =   0; // use dynamic major
@@ -30,20 +31,13 @@ struct aesd_dev aesd_device;
 
 int aesd_open(struct inode *inode, struct file *filp)
 {
+    struct aesd_dev *dev;
+    PDEBUG("open");
     /**
      * TODO: handle open
-     * 
-     * filp = file pointer, set filp->private_data with aesd_dev device struct
-     * use inode->i_cdev with container_of to locate within aesd_dev structure
      */
-
-    struct aesd_dev *dev;
-    
-    PDEBUG("open");
-
     dev = container_of(inode->i_cdev, struct aesd_dev, cdev);
     filp->private_data = dev;
-
     return 0;
 }
 
@@ -82,22 +76,14 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
      * return < 0, error occurred
      */
     
-    size_t unread_cnt = 0;
     size_t read_entry_offset_rtn = 0;
     size_t new_count = 0;
-    struct aesd_dev *dev = filp->private_data;
+    struct aesd_dev *dev = (struct aesd_dev*)filp->private_data;
     struct aesd_buffer_entry *read_entry;
     ssize_t retval = 0;
 
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
     
-/* parameter error handling */
-    if(filp == NULL || buf == NULL || f_pos == NULL)
-    {
-        retval = -EFAULT;
-        goto exit;
-    }
-
 /* obtain mutex, exit on failure */
     if(mutex_lock_interruptible(&dev->mutex) != 0)
     {
@@ -105,13 +91,24 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         goto exit;
     }
 
-/* end goal is to find the entry and copy to user space */
-    read_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->buffer, *f_pos, &read_entry_offset_rtn);
-    if(read_entry == NULL)
+/* parameter error handling */
+    if(filp == NULL || buf == NULL || f_pos == NULL)
     {
         retval = -EFAULT;
         goto exit;
     }
+/* attempting to read 0 bytes, always return 0 */
+    if(count == 0)
+    {
+        retval = 0;
+        goto exit;
+    }
+
+/* end goal is to find the entry and copy to user space */
+    read_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->buffer, *f_pos, &read_entry_offset_rtn);
+    if(read_entry == NULL)
+        goto exit;
+  
 /* check if count would extend past last byte of read entry when starting at desired offset */
     if((read_entry->size - read_entry_offset_rtn) < count)
         new_count = read_entry->size - read_entry_offset_rtn;
@@ -121,8 +118,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     *f_pos += new_count;
 
 /* returns 0 on success, >0 is number of bytes not read */
-    unread_cnt = copy_to_user(buf, (read_entry->buffptr + read_entry_offset_rtn), new_count);
-    if(unread_cnt < 0)
+    if(copy_to_user(buf, (read_entry->buffptr + read_entry_offset_rtn), new_count))
     {
         retval = -EFAULT;
         goto exit;
@@ -157,12 +153,12 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     bool cmd_end_flag = false;
     size_t cmd_len = 0;
     char *input_buffer = NULL;
-    size_t unwritten_cnt = 0;
     const char *overwrite = NULL;
     struct aesd_dev *dev = filp->private_data;  /* get pointer to our char device */
     ssize_t retval = 0;
 
     PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
+
 /* parameter error handling */
     if(filp == NULL || buf == NULL || f_pos == NULL)
     {
@@ -186,8 +182,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     }
 
 /* returns 0 on success, >0 is number of bytes not written */
-    unwritten_cnt = copy_from_user(input_buffer, buf, count);
-    if(unwritten_cnt < 0)
+    if(copy_from_user(input_buffer, buf, count))
     {
         retval = -EFAULT;
         goto free_kmem;
@@ -215,7 +210,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             retval = -ENOMEM;
             goto free_kmem;
         }
-        //memset((void *)dev->working_entry.buffptr, 0, cmd_len);
+        memset((void *)dev->working_entry.buffptr, 0, cmd_len);
         memcpy((void *)dev->working_entry.buffptr, input_buffer, cmd_len);
     }    
 /* if working entry already contains something, realloc to append more stuff */
@@ -328,7 +323,6 @@ void aesd_cleanup_module(void)
     }
 
     mutex_destroy(&aesd_device.mutex);
-
     unregister_chrdev_region(devno, 1);
 }
 

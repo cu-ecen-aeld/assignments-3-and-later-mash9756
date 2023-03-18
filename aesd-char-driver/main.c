@@ -84,6 +84,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     
     size_t unread_cnt = 0;
     size_t read_entry_offset_rtn = 0;
+    size_t new_count = 0;
     struct aesd_dev *dev = filp->private_data;
     struct aesd_buffer_entry *read_entry;
     ssize_t retval = 0;
@@ -113,20 +114,22 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     }
 /* check if count would extend past last byte of read entry when starting at desired offset */
     if((read_entry->size - read_entry_offset_rtn) < count)
-        count = read_entry->size - read_entry_offset_rtn;
+        new_count = read_entry->size - read_entry_offset_rtn;
+    else
+        new_count = count;
+    
+    *f_pos += new_count;
 
 /* returns 0 on success, >0 is number of bytes not read */
-    unread_cnt = copy_to_user(buf, (read_entry->buffptr + read_entry_offset_rtn), count);
+    unread_cnt = copy_to_user(buf, (read_entry->buffptr + read_entry_offset_rtn), new_count);
     if(unread_cnt < 0)
     {
-        retval = unread_cnt;
+        retval = -EFAULT;
         goto exit;
     }
 
 /* return total bytes read */
-    retval = count - unread_cnt;
-/* update read offset position */
-    *f_pos += retval;
+    retval = new_count;
 
 exit:
     mutex_unlock(&dev->mutex);
@@ -174,6 +177,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         goto exit;
     }
 
+/* allocate input buffer to store the entire write */
     input_buffer = (char *)kmalloc(count, GFP_KERNEL);
     if(input_buffer == NULL)
     {
@@ -183,7 +187,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
 /* returns 0 on success, >0 is number of bytes not written */
     unwritten_cnt = copy_from_user(input_buffer, buf, count);
-    if(retval < 0)
+    if(unwritten_cnt < 0)
     {
         retval = -EFAULT;
         goto free_kmem;
@@ -198,33 +202,35 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             break;
         }
     }
-/* if we dont find a \n, then our command len needs to be the full size */
+/* if we dont find a \n, then our command length needs to be the full size */
     if(cmd_end_flag == false)
         cmd_len = count;
         
 /* allocate memory for working entry if it doesnt already exist */
-    if(dev->working_entry.size == 0)
-        dev->working_entry.buffptr = (char *)kmalloc(cmd_len, GFP_KERNEL);
-
-/* if working entry already contains something, realloc to append more stuff */
-    else
-        dev->working_entry.buffptr = krealloc(dev->working_entry.buffptr, (cmd_len + dev->working_entry.size), GFP_KERNEL);
-
     if(dev->working_entry.buffptr == NULL)
     {
-        retval = -ENOMEM;
-        goto free_kmem;
+        dev->working_entry.buffptr = kmalloc(cmd_len, GFP_KERNEL);
+        if(dev->working_entry.buffptr == NULL)
+        {
+            retval = -ENOMEM;
+            goto free_kmem;
+        }
+        //memset((void *)dev->working_entry.buffptr, 0, cmd_len);
+        memcpy((void *)dev->working_entry.buffptr, input_buffer, cmd_len);
+    }    
+/* if working entry already contains something, realloc to append more stuff */
+    else
+    {
+        dev->working_entry.buffptr = krealloc(dev->working_entry.buffptr, dev->working_entry.size + cmd_len, GFP_KERNEL);
+        if(dev->working_entry.buffptr == NULL)
+        {
+            retval = -ENOMEM;
+            goto free_kmem;
+        }
+        memcpy((void *)dev->working_entry.buffptr + dev->working_entry.size, input_buffer, cmd_len);
     }
-        
-/* intialize allocated working entry buffer */
-    memset((void *)dev->working_entry.buffptr, 0, (cmd_len + dev->working_entry.size));
-
-/* copy command contents into entry buffer */
-    memcpy((void *)dev->working_entry.buffptr, input_buffer, (cmd_len + dev->working_entry.size));
-
-/* return total bytes written and adjust working entry size accordingly */
-    retval = cmd_len - unwritten_cnt;
-    dev->working_entry.size += retval;
+/* update buffer length with new added command */
+    dev->working_entry.size += cmd_len;
 
     if(cmd_end_flag == true)
     {
@@ -236,6 +242,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         dev->working_entry.buffptr  = NULL;
         dev->working_entry.size     = 0;
     }
+
+    retval = count;
 
 free_kmem:
     kfree(input_buffer);

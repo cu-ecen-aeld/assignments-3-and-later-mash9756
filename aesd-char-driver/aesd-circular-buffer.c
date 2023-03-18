@@ -132,96 +132,47 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 */
 const char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
-
     const char *overwrite = NULL;
-
-    /* error out if either buffer or entry are invalid */
+    
+/* error out if either buffer or entry are invalid */
     if(buffer == NULL || add_entry == NULL)
+        return NULL;
+
+/* if buffer is full, we need to update out_offs as we are about to overwrite */
+    if((buffer->out_offs == buffer->in_offs) && (buffer->full == true))
     {
-        /* do nothing, break*/
-        //printf("\nbuffer or add_entry was NULL");
+    /* wrap output counter if current offset is at the end of the array */
+        if(buffer->out_offs == (AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED - 1))
+            buffer->out_offs = 0;
+    /* increment ouput offset before new entry added if not */
+        else
+            buffer->out_offs++;
+
+    /* store buffptr of data to be overwritten, return so it can be freed */
+        overwrite = buffer->entry[buffer->in_offs].buffptr;
+    /* add entry to entry array at the current input offset */
+        buffer->entry[buffer->in_offs] = *add_entry;
+    /* move input offset to updated output offset after new entry is added */
+        buffer->in_offs=buffer->out_offs;
     }
     else
     {
-    /* if buffer is full, we need to update out_offs as we are about to overwrite */
-        if(buffer->full == true)
-        {
-            //printf("\nout_offs = %d", buffer->out_offs);
-            //printf("\nmoving out_offs, overwrite occurred");
-        /* store buffptr of data to be overwritten, return so it can be freed */
-            overwrite = buffer->entry[buffer->out_offs].buffptr;
-            buffer->out_offs++;
-            //printf("\nout_offs = %d\n", buffer->out_offs);
-        }
-
     /* add entry to entry array at the current input offset */
-        //rintf("writing entry %d\n", buffer->in_offs);
         buffer->entry[buffer->in_offs] = *add_entry;
-
-    /* increment input offset after new entry added */
-        buffer->in_offs++;
-
     /* wrap input counter if current offset is at the end of the array */
-        if(buffer->in_offs == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
-        {    
-            //printf("\nin_offs = %d, wrapping back to 0\n", buffer->in_offs);
+        if(buffer->in_offs == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED - 1)
             buffer->in_offs = 0;
-        }
-
-    /* if in and out are equal after a write, then the buffer is full */
-        if(buffer->out_offs == buffer->in_offs)
-        {
-            //printf("\n\nBuffer Full\n\n");
-            buffer->full = true;
-        }
+    /* increment input offset after new entry added if not */
+        else
+            buffer->in_offs++;
     }
+
+/* if in and out are equal after a write, then the buffer is full */
+    if(buffer->out_offs == buffer->in_offs)
+        buffer->full = true;
+
     return overwrite;
 }
-
-
-
-// {
-//     const char *overwrite = NULL;
-    
-// /* error out if either buffer or entry are invalid */
-//     if(buffer == NULL || add_entry == NULL)
-//         return NULL;
-
-// /* if buffer is full, we need to update out_offs as we are about to overwrite */
-//     if((buffer->out_offs == buffer->in_offs) && (buffer->full == true))
-//     {
-//     /* wrap output counter if current offset is at the end of the array */
-//         if(buffer->out_offs == (AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED - 1))
-//             buffer->out_offs = 0;
-//     /* increment ouput offset before new entry added if not */
-//         else
-//             buffer->out_offs++;
-
-//     /* store buffptr of data to be overwritten, return so it can be freed */
-//         overwrite = buffer->entry[buffer->in_offs].buffptr;
-//     /* add entry to entry array at the current input offset */
-//         buffer->entry[buffer->in_offs] = *add_entry;
-//     /* move input offset to updated output offset after new entry is added */
-//         buffer->in_offs=buffer->out_offs;
-//     }
-//     else
-//     {
-//     /* add entry to entry array at the current input offset */
-//         buffer->entry[buffer->in_offs] = *add_entry;
-//     /* wrap input counter if current offset is at the end of the array */
-//         if(buffer->in_offs == AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED - 1)
-//             buffer->in_offs = 0;
-//     /* increment input offset after new entry added if not */
-//         else
-//             buffer->in_offs++;
-//     }
-
-// /* if in and out are equal after a write, then the buffer is full */
-//     if(buffer->out_offs == buffer->in_offs)
-//         buffer->full = true;
-
-//     return overwrite;
-// }
 
 /**
 * Initializes the circular buffer described by @param buffer to an empty struct

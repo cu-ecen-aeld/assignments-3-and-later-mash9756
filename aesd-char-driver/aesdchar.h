@@ -34,7 +34,6 @@ struct aesd_dev
     struct aesd_buffer_entry working_entry;            /* Working CB entry for writes     */
     struct mutex mutex;                                /* locking primitive               */
     struct cdev cdev;                                  /* Char device structure           */
-    
 };
 
 

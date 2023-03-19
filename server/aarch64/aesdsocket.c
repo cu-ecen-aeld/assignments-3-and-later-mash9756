@@ -59,7 +59,6 @@
 /* global for signal handler access */
 bool cleanExit  = false;
 int socketFD    = 0;
-long total_len = 0;
 
 /**
  * @name    get_in_addr
@@ -144,58 +143,42 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex)
         return -1;
     }
 
-    int res         = 0;
-    //long fileLen    = 0;
-    int fd          = 0;
-    char *readback  = (char *)malloc(total_len);
+    int res      = 0;
+    long fileLen = 0;
+    FILE *fptr   = NULL;
 
 /* setup file to write results into */
     printf("\nfile setup\n");
 /* open file for appended writes and reading, also creates file if it doesnt exist */
-    fd = open(OUTPUT_FILE, O_RDWR|O_CREAT|O_APPEND, S_IRWXU|S_IRWXG|S_IRWXO);
-    printf("write to file: %d\n", fd);
-    printf("\nData to be written: %s\n\n", *pkt);
+    fptr = fopen(OUTPUT_FILE, "a+");
+    printf("write to file\n");
 /* lock mutex for file writing */
-
     pthread_mutex_lock(mutex);
-    printf("mutex lock\n");
-    write(fd, *pkt, sizeof(pkt));
-    printf("file write complete\n");
+    fputs(*pkt, fptr);
     pthread_mutex_unlock(mutex);
-    printf("mutex unlock\n");
 
 /* seek to end of file, read back length, then return to start */
-    //lseek(fd, 0, SEEK_END);
-    //printf("Found EOF\n");
-    //fileLen = ftell(fd);
-    //printf("Found File Length\n");
-    lseek(fd, 0, SEEK_SET);
-    printf("Found SOF\n");
+    fseek(fptr, 0, SEEK_END);
+    fileLen = ftell(fptr);
+    fseek(fptr, 0, SEEK_SET);
 /* extend pkt for full file length and clear for readback */
-    //*pkt = (char *)realloc(*pkt, total_len);
-    //memset(*pkt, 0, total_len);
+    *pkt = (char *)realloc(*pkt, fileLen);
+    memset(*pkt, 0, fileLen);
 
 /* readback and send contents of file back */
-    printf("Reading back %ld bytes from file\n", total_len);
-
-    if(read(fd, readback, total_len) < 0)
+    while(fgets(*pkt, fileLen, fptr) != NULL)
     {
-        syslog(LOG_ERR, "Can't readback from file");
-        return -1;
+        printf("\nsending read back to client\n");
+        res = send(clientFD, *pkt, strlen(*pkt), 0);
+        if(res == -1)
+        {
+            printf("\nsend failure\n");
+            if(errno == EINTR)
+                continue;
+
+            syslog(LOG_ERR, "send failed, see errno for details");
+        }
     }
-
-    printf("\n\nReadback: %s", readback);
-
-    printf("\nsending read back to client\n");
-    if(send(clientFD, readback, total_len, 0) < 0)
-    {
-        printf("\nsend failure\n");
-        if(errno == EINTR)
-            return -1;
-
-        syslog(LOG_ERR, "send failed, see errno for details");
-    }
-
     printf("\nsend complete!\n");
     if(pkt != NULL)
     {
@@ -204,8 +187,7 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex)
         *pkt = NULL;
     }
     printf("\nclosing file\n");
-    free(readback);
-    close(fd);
+    fclose(fptr);
     if(res == -1)
         return -1;
     else
@@ -346,10 +328,7 @@ void *client_func(void *thread_param)
 
         /* load recv buffer data into second buffer for file write */
         memcpy(recvPkt + currLen, recvBuf, recvLen);
-        printf("\nReceived: %s", recvBuf);
         currLen += recvLen;
-
-        total_len += recvLen;
 
         printf("\nprocessing recvPkt\n");
         res = process_recv_pkt(&recvPkt, clientData->clientFD, clientData->mutex);

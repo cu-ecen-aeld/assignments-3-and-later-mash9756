@@ -114,7 +114,6 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         new_count = read_entry->size - read_entry_offset_rtn;
     else
         new_count = count;
-    
     *f_pos += new_count;
 
 /* returns 0 on success, >0 is number of bytes not read */
@@ -250,12 +249,80 @@ exit:
     return retval;
 }
 
+/**
+ *  @name   aesd_llseek
+ *  @brief  adds lseek functionality
+ * 
+ *  @param  filp    our device
+ *  @param  offset  desired offest for given operation, change f_pos
+ *  @param  whence  SEEK operation
+ * 
+ *  @return new file offset position
+ * 
+ *  followed general format from http://www.learningaboutelectronics.com/Articles/How-to-implement-the-lseek-file-operation-method-linux-device-driver.php
+*/
+loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
+{
+    loff_t new_f_pos;
+    size_t totalBytes = 0;
+    struct aesd_dev *dev = filp->private_data;
+
+    PDEBUG("\nlseek");
+
+    if(mutex_lock_interruptible(&dev->mutex) != 0)
+    {
+        new_f_pos = -ERESTARTSYS;
+        goto exit;
+    }
+    
+/* get total buffer size for error handling and SEEK_END */
+    totalBytes  = aesd_circular_buffer_size(&dev->buffer);
+
+    switch (whence) 
+    {
+        case SEEK_SET:
+            new_f_pos = offset;
+            break;
+
+        case SEEK_CUR:
+            new_f_pos = filp->f_pos + offset;
+            break;
+
+        case SEEK_END:
+            new_f_pos = totalBytes - offset;
+            break;
+
+        default:
+            return -EINVAL;
+
+    }
+
+/* check that new position doesn't extend past the end of our CB */
+    if(new_f_pos > totalBytes) 
+        return -EINVAL;
+
+/* check that we don't back up too far */
+    if(new_f_pos < 0) 
+        new_f_pos = 0;
+
+/* update actual f_pos with new calculated value */
+    filp->f_pos = new_f_pos;
+    PDEBUG("\nNew f_pos = %lld", filp->f_pos);
+
+exit:
+    mutex_unlock(&dev->mutex);
+
+    return new_f_pos;
+}
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
     .read =     aesd_read,
     .write =    aesd_write,
     .open =     aesd_open,
     .release =  aesd_release,
+/* adding lseek functionality */
+    .llseek = aesd_llseek,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)
@@ -290,6 +357,7 @@ int aesd_init_module(void)
      * TODO: initialize the AESD specific portion of the device
      */
     mutex_init(&aesd_device.mutex);
+    aesd_circular_buffer_init(&aesd_device.buffer);
 
     result = aesd_setup_cdev(&aesd_device);
 

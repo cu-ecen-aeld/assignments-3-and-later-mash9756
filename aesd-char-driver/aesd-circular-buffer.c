@@ -175,6 +175,25 @@ const char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, 
 }
 
 /**
+ *  @name   aesd_circular_buffer_size
+ *  @brief  calculated total CB size
+ * 
+ *  @param  buffer  pointer to CB
+ * 
+ *  @return total CB size
+*/
+size_t aesd_circular_buffer_size(struct aesd_circular_buffer *buffer)
+{
+    size_t totalBytes = 0;
+    int i = 0;
+
+    for(i = 0; i <= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED-1; i++)
+        totalBytes += buffer->entry[i].size; 
+
+    return totalBytes;
+}
+
+/**
 * Initializes the circular buffer described by @param buffer to an empty struct
 */
 void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer)

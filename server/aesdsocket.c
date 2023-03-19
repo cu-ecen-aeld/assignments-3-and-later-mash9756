@@ -152,8 +152,11 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
     fd = open(OUTPUT_FILE, O_RDWR|O_CREAT|O_APPEND, S_IRWXU|S_IRWXG|S_IRWXO);
 
     printf("\n%ld bytes to be written: %s,\n\n", len, *pkt);
+    printf("\nlocking\n");
     pthread_mutex_lock(mutex);
+    printf("\nwriting\n");
     write(fd, *pkt, len);
+    printf("\nunlocking\n");
     pthread_mutex_unlock(mutex);
 
     printf("\nSeeking to start of file\n");

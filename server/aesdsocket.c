@@ -149,6 +149,8 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
     char *readback  = (char *)malloc(total_len);
     long i = 0;
 
+    fd = open(OUTPUT_FILE, O_RDWR|O_CREAT|O_APPEND, S_IRWXU|S_IRWXG|S_IRWXO);
+
     printf("\n%ld bytes to be written: %s,\n\n", len, *pkt);
     pthread_mutex_lock(mutex);
     write(fd, *pkt, len);
@@ -179,6 +181,7 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
         *pkt = NULL;
     }
     free(readback);
+    close(fd);
 
     return 0;
 }
@@ -348,8 +351,6 @@ void *client_func(void *thread_param)
 int main(int argc, char *argv[])
 {
     printf("\n\nAESD Socket\n\n");
-
-    fd = open(OUTPUT_FILE, O_RDWR|O_CREAT|O_APPEND, S_IRWXU|S_IRWXG|S_IRWXO);
     
     struct thread_data *threadSetup = NULL;
     struct thread_data *temp = NULL;

@@ -156,9 +156,11 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
     write(fd, *pkt, len);
     pthread_mutex_unlock(mutex);
 
+    printf("\nSeeking to start of file\n");
 /* seek to file start for readback */
     lseek(fd, 0, SEEK_SET);
 /* readback one byte at a time until we reach EOF */
+    printf("\nReading back...\n");
     while(read(fd, &readback[i++], 1) != 0);
 
     printf("\nsending read back to client\n");

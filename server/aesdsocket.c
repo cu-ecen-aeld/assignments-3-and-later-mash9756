@@ -153,7 +153,14 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
 
     printf("\n%ld bytes to be written: %s,\n\n", len, *pkt);
     printf("\nlocking\n");
-    pthread_mutex_lock(mutex);
+    if(pthread_mutex_lock(mutex))
+    {
+        printf("\nfailed to lock");
+        free(readback);
+        close(fd);
+        return -1;
+    }
+    
     printf("\nwriting\n");
     write(fd, *pkt, len);
     printf("\nunlocking\n");
@@ -173,6 +180,7 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
         if(errno == EINTR)
         {
             free(readback);
+            close(fd);
             return -1;
         }    
         syslog(LOG_ERR, "send failed, see errno for details");

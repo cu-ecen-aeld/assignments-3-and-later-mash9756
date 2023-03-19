@@ -141,6 +141,7 @@ struct thread_data
 */
 static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, long len)
 {
+    //pthread_mutex_unlock(mutex);
     if(pkt == NULL)
     {
         syslog(LOG_ERR, "Passed Packet returned NULL pointer");
@@ -152,19 +153,19 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
     fd = open(OUTPUT_FILE, O_RDWR|O_CREAT|O_APPEND, S_IRWXU|S_IRWXG|S_IRWXO);
 
     printf("\n%ld bytes to be written: %s,\n\n", len, *pkt);
-    // printf("\nlocking\n");
-    // if(pthread_mutex_lock(mutex))
-    // {
-    //     printf("\nfailed to lock");
-    //     free(readback);
-    //     close(fd);
-    //     return -1;
-    // }
+    printf("\nlocking\n");
+    if(pthread_mutex_lock(mutex))
+    {
+        printf("\nfailed to lock");
+        free(readback);
+        close(fd);
+        return -1;
+    }
     
     printf("\nwriting\n");
     write(fd, *pkt, len);
-    // printf("\nunlocking\n");
-    // pthread_mutex_unlock(mutex);
+    printf("\nunlocking\n");
+    pthread_mutex_unlock(mutex);
 
     printf("\nSeeking to start of file\n");
 /* seek to file start for readback */
@@ -369,6 +370,7 @@ int main(int argc, char *argv[])
     struct thread_data *temp = NULL;
     pthread_mutex_t mutex;
 
+    pthread_mutex_init(&mutex, NULL);
 /* -------------------------- setup signal handlers -------------------------- */
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);

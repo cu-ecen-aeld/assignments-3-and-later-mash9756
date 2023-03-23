@@ -20,4 +20,4 @@ cd ..
 cd server
 
 echo "Starting aesdsocket"
-./aesdsocket
+strace -o strace.txt -f ./aesdsocket

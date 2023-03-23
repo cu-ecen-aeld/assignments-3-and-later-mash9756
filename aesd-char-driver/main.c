@@ -83,7 +83,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     struct aesd_buffer_entry *read_entry;
     ssize_t retval = 0;
 
-    //PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
+    PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
     
 /* obtain mutex, exit on failure */
     if(mutex_lock_interruptible(&dev->mutex) != 0)
@@ -108,7 +108,12 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 /* end goal is to find the entry and copy to user space */
     read_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->buffer, *f_pos, &read_entry_offset_rtn);
     if(read_entry == NULL)
+    {
+        PDEBUG("\nRead returned NULL, EOF reached");
+        retval = 0;
         goto exit;
+    }
+        
   
 /* check if count would extend past last byte of read entry when starting at desired offset */
     if((read_entry->size - read_entry_offset_rtn) < count)
@@ -337,29 +342,28 @@ static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, u
     int i = 0;
     int retval = 0;
 
-/* obtain mutex, exit on failure */
-    if(mutex_lock_interruptible(&dev->mutex) != 0)
-    {
-        retval = -ERESTARTSYS;
-        goto exit;
-    }
+    PDEBUG("\naesd_adjust_file_offset");
+    PDEBUG("\n\twrite_cmd: %d, write_cmd_offset: %d", write_cmd, write_cmd_offset);
 
 /* out of range entry (>10) */
     if(write_cmd > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
     {
         retval = -EINVAL;
+        PDEBUG("\nwr_cmd > 10");
         goto exit;
     }    
 /* entry not written yet (buffer entry doesnt exist) */
     if(dev->buffer.entry[write_cmd].buffptr == NULL)
     {
         retval = -EINVAL;
+        PDEBUG("\nentry doesn't exist");
         goto exit;
     }  
 /* write_cmd_offset is larger than the size of the entry */
     if(write_cmd_offset >= dev->buffer.entry[write_cmd].size)
     {
         retval = -EINVAL;
+        PDEBUG("\noffset larger than size of desired entry");
         goto exit;
     }  
 
@@ -369,10 +373,9 @@ static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, u
 
 /* update *f_pos with entry starting offset + offset within desired entry */
     filp->f_pos += (command_start_offset + write_cmd_offset);
+    PDEBUG("\nNew *f_pos %lld", filp->f_pos);
 
 exit:
-/* release mutex */
-    mutex_unlock(&dev->mutex);
     return retval;
 }
 
@@ -392,8 +395,16 @@ long aesd_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
     long retval = 0;
     struct aesd_seekto seekto;
+    struct aesd_dev *dev = filp->private_data;
 
     PDEBUG("\nioctl");
+
+/* obtain mutex, exit on failure */
+    if(mutex_lock_interruptible(&dev->mutex) != 0)
+    {
+        retval = -ERESTARTSYS;
+        goto exit;
+    }
 
     switch(cmd)
     {
@@ -404,6 +415,7 @@ long aesd_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             {
                 PDEBUG("\n\t\tcopy_from_user failed");
                 retval = -EFAULT;
+                goto exit;
             }
             else
             {
@@ -416,9 +428,12 @@ long aesd_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             break;
         }
         default:
-            PDEBUG("\n\targ not recognized");
+            PDEBUG("\n\tcmd not recognized");
     }
+exit:
+/* release mutex */
     PDEBUG("\n\t\tReturning: %ld", retval);
+    mutex_unlock(&dev->mutex);
     return retval;
 }
 

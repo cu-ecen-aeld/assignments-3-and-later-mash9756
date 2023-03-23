@@ -187,7 +187,7 @@ size_t aesd_circular_buffer_size(struct aesd_circular_buffer *buffer)
     size_t totalBytes = 0;
     int i = 0;
 
-    for(i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
+    for(i = buffer->out_offs; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
         totalBytes += buffer->entry[i].size; 
 
     return totalBytes;

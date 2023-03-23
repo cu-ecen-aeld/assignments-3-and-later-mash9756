@@ -165,6 +165,7 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
     struct aesd_seekto seekto;
     char wr_cmd;
     char wr_cmd_ofs;
+    bool ioctl_flag = false;
 
     char find_seek[IOCTL_STRING_SIZE];
     memcpy(find_seek, *pkt, IOCTL_STRING_SIZE - 1);
@@ -173,27 +174,30 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
     if(strcmp(find_seek, IOCTL_STRING) == 0)
     {
         printf("\n\t\tIOCTL Command Received. Parsing values...");
+        /* EXTRA BYTE??? */
+        total_len -= (len + NULL_TERM_BYTE+NULL_TERM_BYTE);
         memcpy(find_seek, *pkt, len);
 
         wr_cmd = find_seek[IOCTL_STRING_SIZE - 1];
         wr_cmd_ofs = find_seek[IOCTL_STRING_SIZE + 1];
-        printf("\n\t\twr_cmd: %d", wr_cmd);
-        printf("\n\t\twr_cmd_ofs: %d", wr_cmd_ofs);
+        //printf("\n\t\twr_cmd: %d", wr_cmd);
+        //printf("\n\t\twr_cmd_ofs: %d", wr_cmd_ofs);
 
         /* get X and Y, bytes 19 and 21 */
         printf("\n\t\tconverting to ints...");
         seekto.write_cmd = wr_cmd - CHAR_TO_INT;
         seekto.write_cmd_offset = wr_cmd_ofs - CHAR_TO_INT;
-        printf("\n\t\twrite_cmd: %d", seekto.write_cmd);
-        printf("\n\t\twrite_cmd_offset: %d", seekto.write_cmd_offset);
+        //printf("\n\t\twrite_cmd: %d", seekto.write_cmd);
+        //printf("\n\t\twrite_cmd_offset: %d", seekto.write_cmd_offset);
 
         /* call ioctl command */
         if(ioctl(fd, AESDCHAR_IOCSEEKTO, &seekto))
             printf("\n\t\tioctl failed");
 
-        printf("\n\t\tioctl success, closing file.");
-        close(fd);
-        goto exit;
+        else
+            printf("\n\t\tioctl success");
+
+        ioctl_flag = true;
     }
 
 /* index for byte-by-byte readback */
@@ -206,32 +210,40 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
     {
         printf("\nfailed to lock");
         free(readback);
-        //free(find_seek);
-        close(fd);
+        if(fd != -1)
+        {
+            printf("\nclosing file");
+            close(fd);
+            fd = -1;
+        }
         return -1;
     }
-    
-    //printf("\nwriting\n");
-    write(fd, *pkt, len);
-    //printf("\nunlocking\n");
+/* write packet to device if not an IOCTL command */
+    if(ioctl_flag == false)
+    {
+        write(fd, *pkt, len);
+        /* seek to file start for readback */
+        lseek(fd, 0, SEEK_SET);
+    }
     pthread_mutex_unlock(mutex);
 
-    //printf("\nSeeking to start of file\n");
-/* seek to file start for readback */
-    lseek(fd, 0, SEEK_SET);
 /* readback one byte at a time until we reach EOF */
     printf("\n\t\tReading back file and sending...");
     while(read(fd, &readback[i++], 1) != 0);
 
-    //printf("\nsending read back to client\n");
-    if(send(clientFD, readback, total_len, 0) < 0)
+/* send read bytes back to client */
+    if(send(clientFD, readback, (i-1), 0) < 0)
     {
         printf("\nsend failure\n");
         if(errno == EINTR)
         {
             free(readback);
-            //free(find_seek);
-            close(fd);
+            if(fd != -1)
+            {
+                printf("\nclosing file");
+                close(fd);
+                fd = -1;
+            }
             return -1;
         }    
         syslog(LOG_ERR, "send failed, see errno for details");
@@ -239,14 +251,13 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
 
     printf("\n\t\tsend complete!\n");
     free(readback);
-exit:
+
     if(pkt != NULL)
     {
         //printf("\nfreeing pkt\n");
         free(*pkt);
         *pkt = NULL;
     }
-    //close(fd);
     return 0;
 }
 
@@ -407,8 +418,12 @@ void *client_func(void *thread_param)
         free(recvPkt);
     }
     
-    printf("\nclosing file");
-    close(fd);
+    if(fd != -1)
+    {
+        printf("\nclosing file");
+        close(fd);
+        fd = -1;
+    }
     printf("\ncleanup and close client thread\n");
     close(clientData->clientFD);
 
@@ -631,7 +646,7 @@ int main(int argc, char *argv[])
             /* TODO: failed to allocate memory */
             shutdown(socketFD, SHUT_RDWR);
             close(socketFD);
-            close(fd);
+            //close(fd);
             exit(-1);
         }
         
@@ -646,7 +661,7 @@ int main(int argc, char *argv[])
             free(threadSetup);
             shutdown(socketFD, SHUT_RDWR);
             close(socketFD);
-            close(fd);
+            //close(fd);
             exit(-1);
         }
 
@@ -675,8 +690,14 @@ cleanup_threads:
     close(socketFD);
     close(clientFD);
     syslog(LOG_DEBUG, "closing device");
-    close(fd);
-    remove(OUTPUT_FILE);
+    if(fd != -1)
+    {
+        printf("\nclosing file");
+        close(fd);
+        fd = -1;
+    }
+    
+    //remove(OUTPUT_FILE);
 
     /* cleanup linked list */
     threadSetup = NULL;

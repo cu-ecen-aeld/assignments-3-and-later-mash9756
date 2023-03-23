@@ -390,7 +390,7 @@ exit:
 */
 long aesd_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
-    int retval = 0;
+    long retval = 0;
     struct aesd_seekto seekto;
 
     PDEBUG("\nioctl");
@@ -411,14 +411,14 @@ long aesd_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 if(retval == 0)
                     PDEBUG("\n\t\tUpdated f_pos successfully: %lld", filp->f_pos);
                 else
-                    PDEBUG("\n\t\tFailed to update f_pos: %d", retval);
+                    PDEBUG("\n\t\tFailed to update f_pos: %ld", retval);
             }
             break;
         }
         default:
             PDEBUG("\n\targ not recognized");
     }
-    
+    PDEBUG("\n\t\tReturning: %ld", retval);
     return retval;
 }
 

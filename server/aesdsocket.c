@@ -188,8 +188,11 @@ static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, lo
         printf("\n\t\twrite_cmd_offset: %d", seekto.write_cmd_offset);
 
         /* call ioctl command */
-        ioctl(fd, AESDCHAR_IOCSEEKTO, &seekto);
-        //close(fd);
+        if(ioctl(fd, AESDCHAR_IOCSEEKTO, &seekto))
+            printf("\n\t\tioctl failed");
+
+        printf("\n\t\tioctl success, closing file.");
+        close(fd);
         goto exit;
     }
 

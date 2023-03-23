@@ -2,7 +2,7 @@
 CC ?= $(CROSS_COMPILE)gcc
 CFLAGS ?= -g -Wall -Werror
 LDFLAGS ?= -lpthread -lrt
-TARGET ?= aarch64-aesdsocket
+TARGET ?= aesdsocket
 SOURCES = aesdsocket.c
 
 all: default
@@ -16,4 +16,4 @@ CROSS_COMPILE_o:
 	$(CC) $(CFLAGS) -c $(SOURCES) -o $(TARGET).o $(LDFLAGS)
 
 clean:
-	rm -f *.o aesdsocket aarch64-aesdsocket
+	rm -f *.o aesdsocket

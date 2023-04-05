@@ -20,6 +20,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include "aesdchar.h"
+#include "aesd_ioctl.h"
 
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
@@ -107,7 +108,12 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 /* end goal is to find the entry and copy to user space */
     read_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->buffer, *f_pos, &read_entry_offset_rtn);
     if(read_entry == NULL)
+    {
+        PDEBUG("\nRead returned NULL, EOF reached");
+        retval = 0;
         goto exit;
+    }
+        
   
 /* check if count would extend past last byte of read entry when starting at desired offset */
     if((read_entry->size - read_entry_offset_rtn) < count)
@@ -236,8 +242,9 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         dev->working_entry.buffptr  = NULL;
         dev->working_entry.size     = 0;
     }
-
-    retval = count;
+/* must return number of bytes actually written to the buffer and update *f_posfor assignment 9 */
+    retval = cmd_len; //count;
+    *f_pos += retval;
 
 free_kmem:
     kfree(input_buffer);
@@ -267,7 +274,7 @@ loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
     size_t totalBytes = 0;
     struct aesd_dev *dev = filp->private_data;
 
-    PDEBUG("\nlseek");
+    PDEBUG("\nllseek");
 
     if(mutex_lock_interruptible(&dev->mutex) != 0)
     {
@@ -282,14 +289,17 @@ loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
     {
         case SEEK_SET:
             new_f_pos = offset;
+            PDEBUG("\nSEEK_SET new f_pos: %lld", new_f_pos);
             break;
 
         case SEEK_CUR:
             new_f_pos = filp->f_pos + offset;
+            PDEBUG("\nSEEK_CUR new f_pos: %lld", new_f_pos);
             break;
 
         case SEEK_END:
             new_f_pos = totalBytes - offset;
+            PDEBUG("\nSEEK_END new f_pos: %lld", new_f_pos);
             break;
 
         default:
@@ -307,12 +317,124 @@ loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
 
 /* update actual f_pos with new calculated value */
     filp->f_pos = new_f_pos;
-    PDEBUG("\nNew f_pos = %lld", filp->f_pos);
+    PDEBUG("\nUpdated f_pos = %lld", filp->f_pos);
 
 exit:
     mutex_unlock(&dev->mutex);
 
     return new_f_pos;
+}
+
+/**
+ *  @name   aesd_adjust_file_offset
+ *  @brief  adjust *f_pos to the desired entry start offset + desired offset within that entry
+ * 
+ *  @param  filp                pointer to our device
+ *  @param  write_cmd           buffer entry (0-9)
+ *  @param  write_cmd_offset    offset within desired entry
+ * 
+ *  @return 0 on success, error on falure
+*/
+static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, unsigned int write_cmd_offset)
+{
+    struct aesd_dev *dev = filp->private_data;
+    unsigned int command_start_offset = 0;
+    int i = 0;
+    int retval = 0;
+
+    PDEBUG("\naesd_adjust_file_offset");
+    PDEBUG("\n\twrite_cmd: %d, write_cmd_offset: %d", write_cmd, write_cmd_offset);
+
+/* out of range entry (>10) */
+    if(write_cmd > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        retval = -EINVAL;
+        PDEBUG("\nwr_cmd > 10");
+        goto exit;
+    }    
+/* entry not written yet (buffer entry doesnt exist) */
+    if(dev->buffer.entry[write_cmd].buffptr == NULL)
+    {
+        retval = -EINVAL;
+        PDEBUG("\nentry doesn't exist");
+        goto exit;
+    }  
+/* write_cmd_offset is larger than the size of the entry */
+    if(write_cmd_offset >= dev->buffer.entry[write_cmd].size)
+    {
+        retval = -EINVAL;
+        PDEBUG("\noffset larger than size of desired entry");
+        goto exit;
+    }  
+
+/* sum sizes of preceding entries, will be start offset of our desired entry */
+    for(i = 0; i < write_cmd; i++)
+        command_start_offset += dev->buffer.entry[i].size;
+
+/* update *f_pos with entry starting offset + offset within desired entry */
+    filp->f_pos += (command_start_offset + write_cmd_offset);
+    PDEBUG("\nNew *f_pos %lld", filp->f_pos);
+
+exit:
+    return retval;
+}
+
+/**
+ *  @name   aesd_compat_ioctl
+ *  @brief  add ioctl functionality, supports single command
+ * 
+ *  @param  filp    our device
+ *  @param  cmd     ioctl command to execute
+ *  @param  arg     arguments to pass with cmd
+ * 
+ *  @return 0 on success, error on failure
+ * 
+ *  followed general format from https://embetronicx.com/tutorials/linux/device-drivers/ioctl-tutorial-in-linux/
+*/
+long aesd_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    long retval = 0;
+    struct aesd_seekto seekto;
+    struct aesd_dev *dev = filp->private_data;
+
+    PDEBUG("\nioctl");
+
+/* obtain mutex, exit on failure */
+    if(mutex_lock_interruptible(&dev->mutex) != 0)
+    {
+        retval = -ERESTARTSYS;
+        goto exit;
+    }
+
+    switch(cmd)
+    {
+        case AESDCHAR_IOCSEEKTO:
+        {
+            PDEBUG("\n\tAESDCHAR_IOCSEEKTO");
+            if(copy_from_user(&seekto, (const void __user *) arg, sizeof(seekto)) != 0)
+            {
+                PDEBUG("\n\t\tcopy_from_user failed");
+                retval = -EFAULT;
+                goto exit;
+            }
+            else
+            {
+                retval = aesd_adjust_file_offset(filp, seekto.write_cmd, seekto.write_cmd_offset);
+                if(retval == 0)
+                    PDEBUG("\n\t\tUpdated f_pos successfully: %lld", filp->f_pos);
+                else
+                    PDEBUG("\n\t\tFailed to update f_pos: %ld", retval);
+            }
+            break;
+        }
+        default:
+            PDEBUG("\n\tcmd not recognized");
+    }
+exit:
+/* release mutex */
+    PDEBUG("\n\t\tReturning: %ld", retval);
+    mutex_unlock(&dev->mutex);
+    return retval;
 }
 
 struct file_operations aesd_fops = {
@@ -323,6 +445,8 @@ struct file_operations aesd_fops = {
     .release =  aesd_release,
 /* adding lseek functionality */
     .llseek = aesd_llseek,
+/* adding ioctl functionality */
+    .unlocked_ioctl = aesd_unlocked_ioctl,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)

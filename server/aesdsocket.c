@@ -34,6 +34,9 @@
 #include <pthread.h>
 #include "queue.h"
 
+/* include ioctl header for struct and function defs */
+#include "aesd_ioctl.h"
+
 /* Assignment 8 Flag */
 #define USE_AESD_CHAR_DEVICE    (1)
 
@@ -55,6 +58,12 @@
 #else
     #define OUTPUT_FILE     ("/var/tmp/aesdsocketdata")
 #endif
+
+#define CHAR_TO_INT         (48)
+
+#define IOCTL_STRING_SIZE   (20)
+
+const char IOCTL_STRING[IOCTL_STRING_SIZE] = "AESDCHAR_IOCSEEKTO:";
 
 /* global for signal handler access */
 bool cleanExit      = false;
@@ -141,62 +150,114 @@ struct thread_data
 */
 static int process_recv_pkt(char **pkt, int clientFD, pthread_mutex_t *mutex, long len)
 {
-    //pthread_mutex_unlock(mutex);
     if(pkt == NULL)
     {
         syslog(LOG_ERR, "Passed Packet returned NULL pointer");
         return -1;
     }
-    char *readback  = (char *)malloc(total_len);
-    long i = 0;
 
+    printf("\n\t\tOpening device...");
     fd = open(OUTPUT_FILE, O_RDWR|O_CREAT|O_APPEND, S_IRWXU|S_IRWXG|S_IRWXO);
 
-    printf("\n%ld bytes to be written: %s,\n\n", len, *pkt);
-    printf("\nlocking\n");
+    printf("\n\t\t%ld bytes received: %s", len, *pkt);
+
+/* ioctl seekto struct */
+    struct aesd_seekto seekto;
+    char wr_cmd;
+    char wr_cmd_ofs;
+    bool ioctl_flag = false;
+
+    char find_seek[IOCTL_STRING_SIZE];
+    memcpy(find_seek, *pkt, IOCTL_STRING_SIZE - 1);
+    find_seek[IOCTL_STRING_SIZE] = '\0';
+
+    if(strcmp(find_seek, IOCTL_STRING) == 0)
+    {
+        printf("\n\t\tIOCTL Command Received. Parsing values...");
+        /* EXTRA BYTE??? */
+        total_len -= (len + NULL_TERM_BYTE+NULL_TERM_BYTE);
+        memcpy(find_seek, *pkt, len);
+
+        wr_cmd = find_seek[IOCTL_STRING_SIZE - 1];
+        wr_cmd_ofs = find_seek[IOCTL_STRING_SIZE + 1];
+        //printf("\n\t\twr_cmd: %d", wr_cmd);
+        //printf("\n\t\twr_cmd_ofs: %d", wr_cmd_ofs);
+
+        /* get X and Y, bytes 19 and 21 */
+        printf("\n\t\tconverting to ints...");
+        seekto.write_cmd = wr_cmd - CHAR_TO_INT;
+        seekto.write_cmd_offset = wr_cmd_ofs - CHAR_TO_INT;
+        //printf("\n\t\twrite_cmd: %d", seekto.write_cmd);
+        //printf("\n\t\twrite_cmd_offset: %d", seekto.write_cmd_offset);
+
+        /* call ioctl command */
+        if(ioctl(fd, AESDCHAR_IOCSEEKTO, &seekto))
+            printf("\n\t\tioctl failed");
+
+        else
+            printf("\n\t\tioctl success");
+
+        ioctl_flag = true;
+    }
+
+/* index for byte-by-byte readback */
+    long i = 0;
+/* memory to hold full readback contents */
+    char *readback  = (char *)malloc(total_len);
+
+    //printf("\nlocking\n");
     if(pthread_mutex_lock(mutex))
     {
         printf("\nfailed to lock");
         free(readback);
-        close(fd);
+        if(fd != -1)
+        {
+            printf("\nclosing file");
+            close(fd);
+            fd = -1;
+        }
         return -1;
     }
-    
-    printf("\nwriting\n");
-    write(fd, *pkt, len);
-    printf("\nunlocking\n");
+/* write packet to device if not an IOCTL command */
+    if(ioctl_flag == false)
+    {
+        write(fd, *pkt, len);
+        /* seek to file start for readback */
+        lseek(fd, 0, SEEK_SET);
+    }
     pthread_mutex_unlock(mutex);
 
-    printf("\nSeeking to start of file\n");
-/* seek to file start for readback */
-    lseek(fd, 0, SEEK_SET);
 /* readback one byte at a time until we reach EOF */
-    printf("\nReading back...\n");
+    printf("\n\t\tReading back file and sending...");
     while(read(fd, &readback[i++], 1) != 0);
 
-    printf("\nsending read back to client\n");
-    if(send(clientFD, readback, total_len, 0) < 0)
+/* send read bytes back to client */
+    if(send(clientFD, readback, (i-1), 0) < 0)
     {
         printf("\nsend failure\n");
         if(errno == EINTR)
         {
             free(readback);
-            close(fd);
+            if(fd != -1)
+            {
+                printf("\nclosing file");
+                close(fd);
+                fd = -1;
+            }
             return -1;
         }    
         syslog(LOG_ERR, "send failed, see errno for details");
     }
 
-    printf("\nsend complete!\n");
+    printf("\n\t\tsend complete!\n");
+    free(readback);
+
     if(pkt != NULL)
     {
-        printf("\nfreeing pkt\n");
+        //printf("\nfreeing pkt\n");
         free(*pkt);
         *pkt = NULL;
     }
-    free(readback);
-    close(fd);
-
     return 0;
 }
 
@@ -280,7 +341,6 @@ void *client_func(void *thread_param)
     if(thread_param == NULL)
         return NULL;
         
-
 /* -------------------------- recv setup -------------------------- */
     long recvLen    = 0;
     long totalLen   = 0;
@@ -294,8 +354,11 @@ void *client_func(void *thread_param)
 
     printf("\nEntered Client Thread %ld", clientData->thread_ID);
 
+    //printf("\n\tOpening device...");
+    //fd = open(OUTPUT_FILE, O_RDWR|O_CREAT|O_APPEND, S_IRWXU|S_IRWXG|S_IRWXO);
+
 /* receive packet from connected client */
-    printf("\nrecv\n");
+    //printf("\nrecv\n");
     while((recvLen = recv(clientData->clientFD, recvBuf, MAX_BUF_SIZE, 0)))
     {
         if(recvLen == -1)
@@ -328,35 +391,42 @@ void *client_func(void *thread_param)
                 clientData->thread_complete_success = 1;
             }
             /* clear newly allocated extended memory */
-            printf("\nclearing realloced memory\n");
+            //printf("\nclearing realloced memory\n");
             memset(recvPkt + currLen , 0, totalLen - currLen);
         }
 
         /* load recv buffer data into second buffer for file write */
         memcpy(recvPkt + currLen, recvBuf, recvLen);
-        printf("\nReceived: %s", recvBuf);
+        //printf("\nReceived: %s", recvBuf);
         currLen += recvLen;
 
         total_len += recvLen;
 
         total_pkt_cnt++;
 
-        printf("\nprocessing recvPkt\n");
+        //printf("\nprocessing recvPkt\n");
         res = process_recv_pkt(&recvPkt, clientData->clientFD, clientData->mutex, recvLen);
         if(res == -1)
             break;
-        printf("\nrecvPkt processed.\n");
+        printf("\n\trecvPkt processed.");
     }
 
     /* free if packet processing failed */
     if(recvPkt != NULL)
     {
-        printf("\nfreeing recvPkt\n");
+        //printf("\nfreeing recvPkt\n");
         free(recvPkt);
     }
     
-    printf("\ncleanup and close client thread");
+    if(fd != -1)
+    {
+        printf("\nclosing file");
+        close(fd);
+        fd = -1;
+    }
+    printf("\ncleanup and close client thread\n");
     close(clientData->clientFD);
+
     clientData->clientFD = -1;
     clientData->thread_complete_success = 1;
     return NULL;
@@ -392,7 +462,7 @@ int main(int argc, char *argv[])
     SLIST_INIT(&head);
 
 /* -------------------------- setup addrinfo for socket -------------------------- */
-    printf("\ngetaddrinfo setup\n");
+    //printf("\ngetaddrinfo setup\n");
     struct addrinfo hints;
     /* clear struct memory space */
     memset(&hints, 0, sizeof(hints));
@@ -402,7 +472,7 @@ int main(int argc, char *argv[])
     hints.ai_socktype  = SOCK_STREAM;
 
 /* -------------------------- client info for connections -------------------------- */
-    printf("\nclient setup\n");
+    //printf("\nclient setup\n");
     struct sockaddr_storage clientAddr;
     /* size stored for accept call */
     socklen_t clientSize;
@@ -410,11 +480,11 @@ int main(int argc, char *argv[])
     char clientIP[INET6_ADDRSTRLEN];
 
 /* -------------------------- setup to hold socket address info from getaddrinfo -------------------------- */
-    printf("\nsocket address setup\n");
+    //printf("\nsocket address setup\n");
     struct addrinfo *addrRes;
     int yes = 1;
 
-    printf("\ngetaddrinfo\n");
+    //printf("\ngetaddrinfo\n");
 /* -------------------------- returns malloc'd socket addrinfo in final parameter -------------------------- */
     int res = getaddrinfo(NULL, PORT, &hints, &addrRes);
     if(res != 0)
@@ -426,7 +496,7 @@ int main(int argc, char *argv[])
     }
 
 /* -------------------------- create socket with IPv4 addressing, streaming type, with default options -------------------------- */
-    printf("\nsocket\n");
+    //printf("\nsocket\n");
     socketFD = socket(addrRes->ai_family, addrRes->ai_socktype, addrRes->ai_protocol);
     if(socketFD == -1)
     {
@@ -437,7 +507,7 @@ int main(int argc, char *argv[])
     }
 
 /* -------------------------- use setsockopt to allow for socket address reuse -------------------------- */
-    printf("\nsetsockopt\n");
+    //printf("\nsetsockopt\n");
     if(setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1)
     {
         syslog(LOG_ERR, "setsockopt failed to config address reuse");
@@ -445,7 +515,6 @@ int main(int argc, char *argv[])
         close(socketFD);
         exit(-1);
     }
-
 
 /* -------------------------- bind created socket ID to generated socket address -------------------------- */
     printf("\nbind\n");
@@ -506,7 +575,7 @@ int main(int argc, char *argv[])
         close(STDERR_FILENO);
     }
 
-    printf("\nlisten\n");
+    //printf("\nlisten\n");
 /* -------------------------- listen for connections on created socket -------------------------- */
     res = listen(socketFD, BACKLOG);
     if(res != 0)
@@ -542,11 +611,15 @@ int main(int argc, char *argv[])
 /* add thread to linked list after creation */
     SLIST_INSERT_HEAD(&head, threadSetup, entries);
 #endif
+
+    //printf("\n\tOpening device...");
+    //fd = open(OUTPUT_FILE, O_RDWR|O_CREAT|O_APPEND, S_IRWXU|S_IRWXG|S_IRWXO);
+
 /* -------------------------- Loop for accepting connections and receiving packets -------------------------- */
     while(!cleanExit)
     {
     /* accept incoming connection and save client info */
-        printf("\naccept\n");
+        //printf("\naccept\n");
         clientSize = sizeof(clientAddr);
         res = accept(socketFD, (struct sockaddr *)&clientAddr, &clientSize);
         if(res == -1)
@@ -573,6 +646,7 @@ int main(int argc, char *argv[])
             /* TODO: failed to allocate memory */
             shutdown(socketFD, SHUT_RDWR);
             close(socketFD);
+            //close(fd);
             exit(-1);
         }
         
@@ -587,12 +661,13 @@ int main(int argc, char *argv[])
             free(threadSetup);
             shutdown(socketFD, SHUT_RDWR);
             close(socketFD);
+            //close(fd);
             exit(-1);
         }
 
         /* add thread to linked list after creation */
         SLIST_INSERT_HEAD(&head, threadSetup, entries);
-        printf("\nadded thread to linked list\n");
+        //printf("\nadded thread to linked list\n");
 
 cleanup_threads:
         /* remove all thread from linked-list, if it is completed */
@@ -610,13 +685,19 @@ cleanup_threads:
         }
     }
 
-    printf("\nClean exit interrupt received, closing...\n");
+    printf("\nClean exit interrupt received, closing...");
     syslog(LOG_DEBUG, "closing connection from %s", clientIP);
     close(socketFD);
     close(clientFD);
-    printf("\nclosing file\n");
-    close(fd);
-    remove(OUTPUT_FILE);
+    syslog(LOG_DEBUG, "closing device");
+    if(fd != -1)
+    {
+        printf("\nclosing file");
+        close(fd);
+        fd = -1;
+    }
+    
+    //remove(OUTPUT_FILE);
 
     /* cleanup linked list */
     threadSetup = NULL;
@@ -630,28 +711,5 @@ cleanup_threads:
     SLIST_INIT(&head);
 
     printf("\nCleanup Complete.\n");
-/*
-    while(cleanExit)
-    {
-        printf("\nClean exit interrupt received, closing...\n");
-        syslog(LOG_DEBUG, "closing connection from %s", clientIP);
-        close(socketFD);
-        close(clientFD);
-        remove(OUTPUT_FILE);
-        threadSetup = NULL;
-        while(!SLIST_EMPTY(&head))
-        {
-            threadSetup = SLIST_FIRST(&head);
-            SLIST_REMOVE_HEAD(&head, entries);
-            printf("\nfreeing threadSetup in cleanExit\n");
-            free(threadSetup);
-        }
-        SLIST_INIT(&head);
-
-        printf("\nCleanup Complete.\n");
-        exit(0);
-    }
-*/
-
     return res;
 }
